@@ -1,0 +1,76 @@
+# Depth cameras of the rover - the single source of truth used by every launch file
+# (driver nodes, static TFs, fusion node topics, simulator).
+#
+# pose = transform base_link -> camera_<name>_link (REP-103, base_link: X forward, Y left, Z up).
+#   camera_<name>_link is the RealSense body frame: X out of the lens, Y left, Z up, origin
+#   at the depth module (left IR imager). Angles in radians, applied as roll, then pitch, then yaw
+#   about the fixed axes (same as URDF rpy). pitch > 0 tilts the camera DOWN.
+#
+# !!! PLACEHOLDER POSES - measure the real mounting positions and update them. !!!
+# Measurement tips (see README "Calibrating the camera poses"):
+#   - x/y/z: tape-measure from the base_link origin (centre of the rover at ground level)
+#     to the centre of the camera front glass, then add ~4 mm back along the lens axis.
+#   - yaw: front = 0, left side ~ +80 deg, right side ~ -80 deg (see coverage note below).
+#   - pitch: measure with a phone inclinometer on top of the camera.
+#
+# Recommended tilt: ~20 deg (0.35 rad) down. With the D455 vertical FOV of ~58 deg and the camera
+# 0.5 m above ground, the lowest ray then hits the ground ~0.43 m from the lens, and the camera
+# still sees ~9 deg above the horizon (enough for tall obstacles further away). A level camera
+# would not see the ground closer than ~0.9 m.
+#
+# Coverage: each D455 sees 86 deg horizontally. Because the cameras are offset from each other,
+# whether the front diagonals are covered depends on the mounting POSITIONS as well as the yaw.
+# E.g. side cameras at the rover's sides (x=0, y=+/-0.35) with yaw +/-90 deg (or even +/-80) leave
+# narrow blind slivers on the front diagonals that reach several metres out. The placeholder below
+# is a compact 3-camera cluster at the front (sides 8 cm apart, yaw +/-80 deg): no blind spot in
+# front, overlapping diagonals, only the rear (~130 deg) is blind.
+# Check any layout before mounting with:
+#     ros2 run wizja_bringup coverage_map.py --config <this file> --height 0.2
+
+target_frame: base_link
+
+cameras:
+  front:
+    serial_no: ''          # quoted string! find it with: rs-enumerate-devices -s
+    pose: {x: 0.45, y: 0.00, z: 0.50, roll: 0.0, pitch: 0.35, yaw: 0.0}
+  left:
+    serial_no: ''
+    pose: {x: 0.40, y: 0.08, z: 0.50, roll: 0.0, pitch: 0.35, yaw: 1.3963}
+  right:
+    serial_no: ''
+    pose: {x: 0.40, y: -0.08, z: 0.50, roll: 0.0, pitch: 0.35, yaw: -1.3963}
+
+# realsense2_camera parameters applied to every camera.
+realsense:
+  # Depth only. Colour is not needed for obstacle detection and would double the USB load.
+  enable_depth: true
+  enable_color: false
+  enable_infra1: false
+  enable_infra2: false
+  enable_gyro: false
+  enable_accel: false
+  # 640x480 @ 15 fps per camera. Both spellings: the key changed between driver versions
+  # (4.51: depth_module.profile, >= 4.54: depth_module.depth_profile); the unused one is ignored.
+  depth_module.profile: 640x480x15
+  depth_module.depth_profile: 640x480x15
+  depth_module.emitter_enabled: 1
+  depth_module.enable_auto_exposure: true
+  # Point cloud computed by the driver (untextured, unordered = NaNs dropped).
+  pointcloud.enable: true
+  pointcloud.stream_filter: 0
+  pointcloud.ordered_pc: false
+  # Post-processing on the host: decimation reduces the cloud 4x, spatial+temporal remove
+  # speckle noise and flying pixels.
+  decimation_filter.enable: true
+  decimation_filter.filter_magnitude: 2
+  spatial_filter.enable: true
+  temporal_filter.enable: true
+  hole_filling_filter.enable: false
+  # Internal camera frames (camera_<name>_link -> depth optical frame) are published by the driver.
+  publish_tf: true
+  tf_publish_rate: 0.0
+  # Hardware reset on start-up: recovers cameras left in a bad state by a previous crash.
+  initial_reset: true
+  # Wait between connection retries when a camera is not (yet) present.
+  wait_for_device_timeout: -1.0
+  reconnect_timeout: 6.0

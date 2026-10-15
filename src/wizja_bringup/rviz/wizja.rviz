@@ -1,0 +1,84 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Reference Frame: <Fixed Frame>
+      Cell Size: 1
+      Plane Cell Count: 20
+    - Class: rviz_default_plugins/Map
+      Name: Obstacle grid
+      Enabled: true
+      Topic:
+        Value: /obstacles/grid
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.5
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: false
+      Marker Scale: 0.4
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Fused cloud
+      Enabled: false
+      Topic:
+        Value: /wizja/fused_points
+        Reliability Policy: Reliable
+      Color Transformer: AxisColor
+      Axis: Z
+      Style: Points
+      Size (Pixels): 2
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Ground
+      Enabled: true
+      Topic:
+        Value: /wizja/ground_points
+        Reliability Policy: Reliable
+      Color Transformer: FlatColor
+      Color: 120; 160; 120
+      Style: Points
+      Size (Pixels): 2
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Obstacles
+      Enabled: true
+      Topic:
+        Value: /obstacles/points
+        Reliability Policy: Reliable
+      Color Transformer: FlatColor
+      Color: 255; 40; 40
+      Style: Points
+      Size (Pixels): 4
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Obstacle boxes
+      Enabled: true
+      Topic:
+        Value: /obstacles/markers
+        Reliability Policy: Reliable
+  Enabled: true
+  Global Options:
+    Background Color: 40; 40; 48
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 14
+      Focal Point:
+        X: 1.5
+        Y: 0
+        Z: 0
+      Pitch: 0.9
+      Yaw: 3.6
+Window Geometry:
+  Width: 1400
+  Height: 900

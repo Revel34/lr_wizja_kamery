@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>wizja_bringup</name>
+  <version>0.1.0</version>
+  <description>Launch files and configuration for the 3x RealSense D455 rover perception.</description>
+  <maintainer email="erykziobro@gmail.com">revel34</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <exec_depend>wizja_perception</exec_depend>
+  <exec_depend>wizja_msgs</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>sensor_msgs_py</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
