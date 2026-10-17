@@ -22,8 +22,8 @@ The two perception nodes are composable components in one `component_container_m
 |---|---|
 | `wizja_msgs` | `Obstacle.msg`, `ObstacleArray.msg` |
 | `wizja_perception` | `CloudFusionNode`, `ObstacleDetectorNode`, ground segmentation library, unit tests, `config/perception.yaml` |
-| `wizja_description` | Rover 3.0 model (geometry, joints and simplified meshes copied from Aut-Main `rover30_description`) plus the camera post and the 3 D455s, with poses read from `cameras.yaml` |
-| `wizja_bringup` | launch files, `config/cameras.yaml` (cameras, serials, mounting poses, driver settings), RViz config, the `fake_cameras.py` simulator and the `coverage_map.py` tool |
+| `wizja_description` | Rover 3.0 model (geometry, joints and simplified meshes copied from Aut-Main `rover30_description`) plus the camera post and the 3 D455s. **The camera positions are defined here** (`urdf/wizja_rover.urdf.xacro`, "CAMERA POSITIONS" block) |
+| `wizja_bringup` | launch files, `config/cameras.yaml` (which cameras exist: serials, driver/external, topics, driver settings), RViz config, the `fake_cameras.py` simulator and the `coverage_map.py` tool |
 
 ## Installation on the Geekom
 
@@ -96,6 +96,31 @@ ros2 launch wizja_bringup sim_test.launch.py            # use_rviz:=false withou
 
 `fake_cameras.py` ray-casts each camera, at its pose in the rover URDF (D455 FOV, 320×240 after decimation, depth noise ∝ z²), against a test scene: two boxes, a pole, a rock on a hill, a 14° hill and an 8 cm bump. The front camera is simulated like the main stack's driver (a 640×480 16UC1 depth image + CameraInfo on the `/camera/realsense_camera/...` topics), so the depth-image input is tested too; the side cameras publish point clouds like our drivers. The rover's own body (deck, rockers, wheels, post, mast) is part of the scene; about 10% of each side camera's pixels see it, which tests the self-filter. The detector should report exactly 4 obstacles; the hill, the bump and the rover itself must not be among them.
 
+**Driving the simulated rover with the keyboard:**
+
+```bash
+ros2 launch wizja_bringup sim_drive.launch.py                    # terminal 1: sim + perception + RViz
+ros2 run teleop_twist_keyboard teleop_twist_keyboard             # terminal 2: keep this one focused
+```
+
+| Key | Action |
+|---|---|
+| `i` / `,` | forward / back |
+| `j` / `l` | turn left / right on the spot |
+| `Shift+J` / `Shift+L` | drive sideways (4-wheel steering) |
+| `u` `o` `m` `.` | arcs |
+| `k` | stop |
+| `q` / `z` | faster / slower (the sim caps at 1 m/s, 1 rad/s) |
+
+RViz (`wizja_drive.rviz`) uses `odom` as its fixed frame and the view follows the rover. It shows:
+- the rover model with its **steering wheels** turning and spinning (4-wheel independent steering kinematics, like Rover 3.0);
+- the ground and obstacle points and the obstacle boxes;
+- the true scene objects as translucent markers (`/sim/scene`).
+
+There are extra objects 9–10 m from the start (a big box and a rock ahead, a low wall at the far left, a pole and a box behind), so there is something to drive to. Without RViz: `use_rviz:=false`.
+
+The simulation is **kinematic**: no physics and no collisions (the rover drives through objects), and the rover stays at z = 0, so it does not climb the hill. Commands time out after 0.5 s. In drive mode the cameras are re-rendered from the current pose every frame at a lower resolution (`drive_resolution_scale`, 0.5); fused data runs at ~14 Hz on the laptop. Topics added in drive mode: `/cmd_vel` (input), `/odom`, TF `odom` → `base_footprint`, `/wizja/joint_states`, `/sim/scene`.
+
 ## Topics
 
 | Topic | Type | Description |
@@ -140,7 +165,12 @@ obstacles:
 
 ## Configuration
 
-`src/wizja_bringup/config/cameras.yaml` is the only list of cameras. The driver nodes, the robot model (URDF), the fusion node topics, the simulator and the coverage tool are all generated from it. To use 4 cameras later, add an entry here; no code changes are needed.
+Cameras are configured in two places, each with one job:
+
+- `src/wizja_bringup/config/cameras.yaml`: **which** cameras exist (serial, `source: driver|external`, topics, driver settings). The driver nodes, the fusion node topics, the simulator and the coverage tool are generated from it.
+- `src/wizja_description/urdf/wizja_rover.urdf.xacro`: **where** they are mounted ("CAMERA POSITIONS" block, see below).
+
+To add a 4th camera, add an entry to `cameras.yaml` and an `<xacro:d455 …>` line to the URDF; no code changes are needed. If a camera is in the yaml but not in the URDF, the launch files stop with an error that says so.
 
 `src/wizja_perception/config/perception.yaml` holds the algorithm parameters, each with a comment. The most important ones:
 
@@ -165,7 +195,7 @@ obstacles:
 
 ### Camera mounting
 
-- **Front:** the rover's existing D455 at the front edge of the deck, **level**, exactly where the rover30 URDF has it (`camera_joint`: bottom screw at `base_link` (0.42, 0, 0.18)). It is 0.57 m above the ground and sees the ground from about 1.06 m ahead. Tilting it ~15° down would bring that to ~0.62 m, but vision and visual odometry use the same camera, so change that only together with them (and in rover30_description + `cameras.yaml`).
+- **Front:** the rover's existing D455 at the front edge of the deck, **level**, exactly where the rover30 URDF has it (`camera_joint`: bottom screw at `base_link` (0.42, 0, 0.18)). It is 0.57 m above the ground and sees the ground from about 1.06 m ahead. Tilting it ~15° down would bring that to ~0.62 m, but vision and visual odometry use the same camera, so change that only together with them (in this project's URDF **and** in Aut-Main `rover30_description`).
 - **Left / right:** on a plate on a **~0.20 m post where the lidar used to be** (`base_link` x 0.33, y 0, on top of the deck), yaw ±80°, 20° down. The post matters: lying flat on the deck, the deck, rocker arms and wheels would hide the side cameras' view of the ground out to about 3 m. On the post they are about 0.78 m above the ground and see it from about 0.7 m out.
 
 Check any layout with:
@@ -174,20 +204,43 @@ Check any layout with:
 ros2 run wizja_bringup coverage_map.py --height 0.2        # ASCII map, includes occlusion by the rover body
 ```
 
-| Camera | Position (base_link) | Yaw | Pitch |
+| Camera | Tripod screw (base_link) | Yaw | Pitch |
 |---|---|---|---|
-| front | `camera_link` (0.431, 0.048, 0.195), from the rover30 URDF | 0° | 0° (level) |
-| left | body centre (0.29, +0.09) on the post | +80° | 20° down |
-| right | body centre (0.29, −0.09) on the post | −80° | 20° down |
+| front | (0.420, 0.000, 0.180), = rover30 `camera_joint` | 0° | 0° (level) |
+| left | (0.289, +0.083, 0.385), on the post | +80° | 20° down |
+| right | (0.289, −0.083, 0.385), on the post | −80° | 20° down |
 
 The sides are at ±80°, not ±90°, so their views overlap the front camera's on the front diagonals. The whole front half is covered; the rear (~125°) is not.
 
-### Calibrating the camera poses (`cameras.yaml`)
+### Changing camera positions
 
-The side-camera poses in `cameras.yaml` are **design values** for the layout above; after mounting, measure the real ones. The front pose must stay equal to the rover30 URDF (the main stack publishes that camera's TF; our copy is only used for the `full` model, the simulator and the coverage tool). `pose` is the transform `base_link → camera_<name>_link` (the rover30 URDF hangs all sensors on `base_link`). `camera_<name>_link` is the RealSense body frame: X out of the lens, origin at the left IR imager, which is 4.75 cm left of the body centre and about 4.6 mm behind the front glass. Angles are in radians in URDF order (roll, pitch, yaw), and `pitch > 0` tilts the camera **down**.
+The camera positions live **in the URDF**: `src/wizja_description/urdf/wizja_rover.urdf.xacro`, "CAMERA POSITIONS" block. There is one line per camera:
 
-1. Measure x/y/z with a tape measure from `base_link` (centre of the rover, 0.38 m above the ground) and the tilt with an inclinometer. Check the result with `view_model.launch.py`: the camera models must sit where the real cameras are.
-2. Check it with RViz on a flat area: `/wizja/ground_points` should be one flat surface with no "steps" where the cameras meet. Place a box in the overlap of two cameras; the two views must line up. If they don't, adjust the yaw or pitch in steps of about 0.01 rad.
+```xml
+<xacro:d455 name="camera_left"  parent="base_link" xyz="0.28910 0.08254 0.38520" rpy="0 0.35 1.3963"/>
+<xacro:d455 name="camera_right" parent="base_link" xyz="0.28854 -0.08304 0.38520" rpy="0 0.35 -1.3963"/>
+```
+
+- `xyz` is the position of the camera's **tripod screw** (the threaded hole in the bottom centre of the D455), measured from `base_link`: x forward, y left, z up, in metres. `base_link` is the centre of the rover, 0.38 m above the ground; the deck top is at z = 0.18. The macro adds the fixed offset from the screw to the camera's depth origin (`<name>_link`: 1.1 cm forward, 4.75 cm left, 1.45 cm up in the camera's own frame), the same way rover30's `rs_d455.urdf.xacro` does.
+- `rpy` is roll, pitch, yaw in radians (URDF convention). `pitch > 0` tilts the camera **down** (0.35 rad ≈ 20°). `yaw > 0` turns it left: +1.5708 faces left, −1.5708 faces right.
+- The **front** camera (`name="camera"`) is the main stack's: on the rover its TF comes from Aut-Main `rover30_description` (`camera_joint`). If you move it, change it in both files so they stay equal.
+
+After editing:
+
+```bash
+cd ~/lr_wizja_kamery
+colcon build --packages-select wizja_description     # the URDF is installed; rebuild after every edit
+source install/setup.bash                            # (or build once with --symlink-install to skip this)
+ros2 launch wizja_bringup view_model.launch.py       # do the camera models sit where the real cameras are?
+ros2 run wizja_bringup coverage_map.py --height 0.2  # what they see and where the blind spots are
+colcon test --packages-select wizja_bringup          # test_description.py pins the current poses (EXPECTED_LINK_POSES):
+                                                     # update it when you move cameras on purpose
+```
+
+Fine-tuning on the rover:
+
+1. Measure the screw positions with a tape measure from `base_link`, and measure the tilt with an inclinometer. Enter them and check with `view_model.launch.py`.
+2. In RViz on a flat area, `/wizja/ground_points` should be one flat surface with no "steps" where the cameras meet. Place a box in the overlap of two cameras; the two views must line up. If they don't, adjust the yaw or pitch in steps of about 0.01 rad.
 3. With the rover standing level, `/obstacles/points` should be empty on flat ground. If the edges flicker, correct the pitch of the camera concerned.
 
 ### Integration with the main rover stack (Aut-Main)
@@ -228,7 +281,8 @@ colcon test && colcon test-result --verbose
 
 - `wizja_perception/test/test_ground_segmentation.cpp`: flat ground, a box, an object below the threshold, a 15° slope, a box on a slope, a step, a box with a hidden base, a tilted rover, a ditch, an overhang, and the occupancy grid.
 - `wizja_bringup/test/test_camera_config.py`: the `cameras.yaml` format, serials, frame and topic names, and the rotation convention.
-- `wizja_bringup/test/test_description.py`: the URDF in `full` and `cameras_only` modes (the shared front camera only in `full`), camera poses in the URDF matching `cameras.yaml`, camera headings (front/left/right), and no camera inside the rover body.
+- `wizja_bringup/test/test_description.py`: the URDF in `full` and `cameras_only` modes (the shared front camera only in `full`), every camera of `cameras.yaml` placed in the URDF, the current camera poses (`EXPECTED_LINK_POSES`), camera headings (front/left/right), and no camera inside the rover body.
+- `wizja_bringup/test/test_sim_kinematics.py`: the simulated rover's 4-wheel steering (forward, sideways, turning on the spot, angle flip at the ±90° joint limit, holding the angle when stopped) and the pose integration (limits, acceleration, command timeout).
 - `wizja_perception/test/test_depth_projection.cpp`: depth-image back-projection (pixel → xyz, decimation, invalid depth, 16UC1 vs 32FC1, padded rows).
 
 ## Known limitations

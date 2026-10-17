@@ -12,7 +12,6 @@ CONFIG = os.path.join(os.path.dirname(__file__), '..', 'config', 'cameras.yaml')
 def test_default_config_has_three_cameras():
     rig = camera_config.load(CONFIG)
     assert rig.target_frame == 'base_footprint'
-    assert rig.parent_frame == 'base_link'
     assert [c.name for c in rig.cameras] == ['front', 'left', 'right']
     assert rig.realsense['pointcloud.enable'] is True
 
@@ -39,9 +38,6 @@ def test_front_is_the_shared_main_stack_camera():
     assert front.depth_optical_frame == 'camera_depth_optical_frame'
     assert front.depth_topic == '/camera/realsense_camera/depth/image_rect_raw'
     assert front.info_topic == '/camera/realsense_camera/depth/camera_info'
-    # rover30 URDF camera_joint (0.42, 0, 0.18) + D455 bottom screw -> camera_link offset.
-    assert (front.x, front.y, front.z) == (0.43115, 0.0475, 0.1945)
-    assert (front.roll, front.pitch, front.yaw) == (0.0, 0.0, 0.0)
 
 
 def test_external_camera_needs_topics(tmp_path):

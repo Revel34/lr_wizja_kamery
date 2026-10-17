@@ -1,0 +1,114 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Reference Frame: <Fixed Frame>
+      Cell Size: 1
+      Plane Cell Count: 40
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Sim scene (ground truth)
+      Enabled: true
+      Topic:
+        Value: /sim/scene
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/Map
+      Name: Obstacle grid
+      Enabled: true
+      Topic:
+        Value: /obstacles/grid
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.5
+    - Class: rviz_default_plugins/RobotModel
+      Name: Rover + cameras
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /wizja/robot_description
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+    - Class: rviz_default_plugins/RobotModel
+      Name: Main stack model
+      Enabled: false
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 0.6
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: false
+      Show Names: false
+      Marker Scale: 0.3
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Fused cloud
+      Enabled: false
+      Topic:
+        Value: /wizja/fused_points
+        Reliability Policy: Reliable
+      Color Transformer: AxisColor
+      Axis: Z
+      Style: Points
+      Size (Pixels): 2
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Ground
+      Enabled: true
+      Topic:
+        Value: /wizja/ground_points
+        Reliability Policy: Reliable
+      Color Transformer: FlatColor
+      Color: 120; 160; 120
+      Style: Points
+      Size (Pixels): 2
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Obstacles
+      Enabled: true
+      Topic:
+        Value: /obstacles/points
+        Reliability Policy: Reliable
+      Color Transformer: FlatColor
+      Color: 255; 40; 40
+      Style: Points
+      Size (Pixels): 4
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Obstacle boxes
+      Enabled: true
+      Topic:
+        Value: /obstacles/markers
+        Reliability Policy: Reliable
+  Enabled: true
+  Global Options:
+    Background Color: 40; 40; 48
+    Fixed Frame: odom
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Target Frame: base_footprint
+      Distance: 14
+      Focal Point:
+        X: 1.5
+        Y: 0
+        Z: 0
+      Pitch: 0.9
+      Yaw: 3.6
+Window Geometry:
+  Width: 1400
+  Height: 900

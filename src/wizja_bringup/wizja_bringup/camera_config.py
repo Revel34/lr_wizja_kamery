@@ -1,4 +1,5 @@
-"""Loads config/cameras.yaml, shared by all wizja launch files and the fake camera simulator."""
+"""Loads config/cameras.yaml (which cameras exist and how to read them), shared by all wizja launch
+files and tools. Camera POSITIONS are not here: they live in wizja_description's URDF."""
 
 import math
 import os
@@ -16,12 +17,6 @@ SOURCES = ('driver', 'external')
 class CameraConfig:
     name: str           # short name, e.g. 'front'
     serial_no: str
-    x: float
-    y: float
-    z: float
-    roll: float
-    pitch: float
-    yaw: float
     source: str = 'driver'      # 'driver': we run realsense2_camera; 'external': another stack does
     frame_prefix: str = ''      # frame names <prefix>_link, ... (default camera_<name>)
     depth_topic: str = ''       # external only: depth image (16UC1 mm or 32FC1 m)
@@ -54,7 +49,6 @@ class CameraConfig:
 @dataclass
 class RigConfig:
     target_frame: str   # frame of the fused cloud / outputs (base_footprint: ground at z = 0)
-    parent_frame: str   # frame the camera poses are given in (base_link)
     cameras: List[CameraConfig]
     realsense: Dict
 
@@ -75,7 +69,6 @@ def load(path: str = '') -> RigConfig:
     cameras = []
     for name, entry in cameras_data.items():
         entry = entry or {}
-        pose = entry.get('pose') or {}
         source = str(entry.get('source', 'driver'))
         if source not in SOURCES:
             raise ValueError(f'{path}: camera {name}: source must be one of {SOURCES}')
@@ -85,12 +78,6 @@ def load(path: str = '') -> RigConfig:
             name=str(name),
             # YAML turns an unquoted serial into an int; keep it a string either way.
             serial_no=str(entry.get('serial_no', '') or ''),
-            x=float(pose.get('x', 0.0)),
-            y=float(pose.get('y', 0.0)),
-            z=float(pose.get('z', 0.0)),
-            roll=float(pose.get('roll', 0.0)),
-            pitch=float(pose.get('pitch', 0.0)),
-            yaw=float(pose.get('yaw', 0.0)),
             source=source,
             frame_prefix=str(entry.get('frame_prefix', '') or ''),
             depth_topic=str(entry.get('depth_topic', '') or ''),
@@ -100,7 +87,6 @@ def load(path: str = '') -> RigConfig:
 
     return RigConfig(
         target_frame=str(data.get('target_frame', 'base_footprint')),
-        parent_frame=str(data.get('parent_frame', 'base_link')),
         cameras=cameras,
         realsense=dict(data.get('realsense') or {}),
     )

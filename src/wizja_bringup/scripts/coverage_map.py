@@ -6,7 +6,7 @@ Use it to choose / check the mounting positions, yaw, pitch and post height:
     ros2 run wizja_bringup coverage_map.py                       # installed cameras.yaml
     ros2 run wizja_bringup coverage_map.py --config my.yaml --height 0.3 --range 6
 
-Camera poses come from the rover URDF (wizja_description, built from cameras.yaml), so they are
+Camera poses come from the rover URDF (wizja_description, CAMERA POSITIONS block), so they are
 exactly what robot_state_publisher publishes. A cell is "seen" when a point at --height above the
 ground in that cell lies inside a camera's depth frustum (FOV and depth range) AND the line of
 sight is not blocked by the rover body (deck, rockers, wheels, mast, post - rover_geometry.py).
@@ -54,9 +54,9 @@ def main():
 
     path = args.config or camera_config.default_config_path()
     rig = camera_config.load(path)
-    transforms = rover_geometry.frame_transforms(
-        rover_geometry.expand_urdf(path, include_rover=True, nominal_camera_frames=True),
-        rig.target_frame)
+    urdf = rover_geometry.expand_urdf(include_rover=True, nominal_camera_frames=True)
+    rover_geometry.check_cameras_in_urdf(rig, urdf, include_external=True)
+    transforms = rover_geometry.frame_transforms(urdf, rig.target_frame)
     cams = [(cam, transforms[cam.depth_optical_frame]) for cam in rig.cameras]
     hfov, vfov = math.radians(args.hfov), math.radians(args.vfov)
     occl = not args.no_occlusion

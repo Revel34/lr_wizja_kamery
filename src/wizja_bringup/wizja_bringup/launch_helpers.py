@@ -7,7 +7,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-from wizja_bringup.rover_geometry import expand_urdf
+from wizja_bringup import camera_config
+from wizja_bringup.rover_geometry import check_cameras_in_urdf, expand_urdf
 
 
 def dds_env(enabled: bool) -> Dict[str, str]:
@@ -28,7 +29,7 @@ ROVER_MODEL_MODES = ('cameras_only', 'full', 'none')
 
 
 def description_nodes(cameras_config: str, mode: str, nominal_camera_frames: bool = False,
-                      use_sim_time: bool = False) -> List[Node]:
+                      use_sim_time: bool = False, joint_state_publisher: bool = True) -> List[Node]:
     """robot_state_publisher (+ joint_state_publisher) for the rover model with the cameras.
 
     mode:
@@ -36,6 +37,9 @@ def description_nodes(cameras_config: str, mode: str, nominal_camera_frames: boo
                     main stack's robot_state_publisher already publishes the rover itself.
       full          whole rover30 model rooted at base_footprint (laptop, simulator, view_model).
       none          publish nothing (the rover's own URDF already contains the cameras).
+
+    joint_state_publisher=False in 'full' mode when something else publishes /wizja/joint_states
+    (the driving simulator animates the steer and wheel joints itself).
 
     Runs in namespace 'wizja' -> /wizja/robot_description and /wizja/joint_states, so it never
     clashes with the main stack's /robot_description. TF goes to the global /tf and /tf_static.
@@ -45,8 +49,9 @@ def description_nodes(cameras_config: str, mode: str, nominal_camera_frames: boo
     if mode == 'none':
         return []
 
-    urdf = expand_urdf(cameras_config, include_rover=(mode == 'full'),
-                       nominal_camera_frames=nominal_camera_frames)
+    # cameras_config only decides which cameras must exist; their positions come from the URDF.
+    urdf = expand_urdf(include_rover=(mode == 'full'), nominal_camera_frames=nominal_camera_frames)
+    check_cameras_in_urdf(camera_config.load(cameras_config), urdf, include_external=(mode == 'full'))
     nodes = [Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -58,7 +63,7 @@ def description_nodes(cameras_config: str, mode: str, nominal_camera_frames: boo
         }],
         output='log',
     )]
-    if mode == 'full':
+    if mode == 'full' and joint_state_publisher:
         # Publishes 0 for the steer/wheel joints so their links get a TF. Only in 'full' mode -
         # on the rover the real joint states come from the main stack.
         nodes.append(Node(

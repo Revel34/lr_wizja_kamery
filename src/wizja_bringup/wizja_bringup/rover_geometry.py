@@ -1,8 +1,8 @@
 """Rover 3.0 geometry shared by the simulator (fake_cameras.py) and the coverage tool.
 
-Camera poses are NOT duplicated here: they are read from the URDF produced by
-wizja_description/urdf/wizja_rover.urdf.xacro (which itself reads cameras.yaml), so every tool sees
-exactly the transforms robot_state_publisher publishes.
+Camera poses are NOT duplicated here: they are read from the URDF
+(wizja_description/urdf/wizja_rover.urdf.xacro, "CAMERA POSITIONS" block), so every tool sees exactly
+the transforms robot_state_publisher publishes.
 """
 
 import math
@@ -38,19 +38,35 @@ ROVER_BOXES: List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]
 ]
 
 
-def expand_urdf(cameras_config: str, include_rover: bool = True,
-                nominal_camera_frames: bool = True) -> str:
+def expand_urdf(include_rover: bool = True, nominal_camera_frames: bool = True) -> str:
     """Run xacro on wizja_rover.urdf.xacro and return the URDF XML string."""
     import xacro  # imported lazily: only needed by tools that build the model
 
     path = os.path.join(
         get_package_share_directory('wizja_description'), 'urdf', 'wizja_rover.urdf.xacro')
     doc = xacro.process_file(path, mappings={
-        'cameras_config': cameras_config,
         'include_rover': 'true' if include_rover else 'false',
         'nominal_camera_frames': 'true' if nominal_camera_frames else 'false',
     })
     return doc.toprettyxml(indent='  ')
+
+
+def check_cameras_in_urdf(rig, urdf_xml: str, include_external: bool) -> None:
+    """Raise if a camera of cameras.yaml has no <prefix>_link in the URDF.
+
+    include_external=False for the cameras_only model, where the external (main-stack) cameras are
+    deliberately left out because the main stack's URDF publishes them.
+    """
+    links = {link.get('name') for link in ET.fromstring(urdf_xml).findall('link')}
+    missing = [
+        f'{cam.name} ({cam.link_frame})' for cam in rig.cameras
+        if (include_external or not cam.external) and cam.link_frame not in links
+    ]
+    if missing:
+        raise RuntimeError(
+            'cameras.yaml lists camera(s) that are not placed in the URDF: ' + ', '.join(missing) +
+            '. Add them to the CAMERA POSITIONS block of '
+            'wizja_description/urdf/wizja_rover.urdf.xacro and rebuild wizja_description.')
 
 
 def _origin_matrix(joint) -> np.ndarray:

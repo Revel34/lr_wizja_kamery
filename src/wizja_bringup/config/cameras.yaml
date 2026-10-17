@@ -1,12 +1,11 @@
-# Depth cameras of the rover - the single source of truth used by every launch file
-# (driver nodes, URDF / robot model, fusion node topics, simulator, coverage tool).
+# Depth cameras of the rover: WHICH cameras exist and how to read them (serials, driver or
+# external, topics, driver settings). Used by the driver launch, the fusion node, the simulator and
+# the coverage tool.
 #
-# pose = transform parent_frame (base_link) -> camera_<name>_link, as in the rover30 URDF where all
-#   sensors hang on base_link. base_link is 0.37956 m above base_footprint (ground contact plane).
-#   camera_<name>_link is the RealSense body frame: X out of the lens, Y left, Z up, origin at the
-#   depth module (LEFT IR imager, 4.75 cm left of the body centre, ~4.6 mm behind the front glass).
-#   Angles in radians, applied as roll, then pitch, then yaw about the fixed axes (URDF rpy).
-#   pitch > 0 tilts the camera DOWN.
+# WHERE the cameras are mounted is defined in the rover URDF, not here:
+#     src/wizja_description/urdf/wizja_rover.urdf.xacro  -> "CAMERA POSITIONS" block
+# Every camera below must be placed there under its frame prefix (camera_<name>, or frame_prefix);
+# the launch files stop with an error otherwise.
 #
 # Camera sources:
 #   source: driver    (default) this project starts a realsense2_camera node for it and uses its
@@ -18,22 +17,11 @@
 #                     driver; in 'cameras_only' mode its frames are not published by us either (the
 #                     main stack's URDF already has them). frame_prefix = the frame names it uses.
 #
-# Mounting (rover 3.0):
-#   front: the rover's existing D455 at the front edge of the deck, LEVEL (rover30 URDF camera_joint:
-#          bottom screw at base_link 0.42, 0, 0.18). Ground visible from ~1.06 m ahead; tilting it
-#          ~15 deg down would give ~0.62 m, but vision/odometry use it too - change only together.
-#   left / right: on a ~0.20 m post where the lidar used to be (base_link 0.33, 0, deck top 0.18),
-#          yaw +/-80 deg, 20 deg down. The post is needed: lying flat on the deck, the deck, rockers
-#          and wheels would hide the side cameras' view of the ground out to ~3 m. With the post they
-#          are ~0.78 m above the ground and see it from ~0.7 m.
-# +/-80 deg (not 90) so the front diagonals overlap with the front camera. Check any layout with:
-#     ros2 run wizja_bringup coverage_map.py --height 0.2
-#
-# !!! The side-camera poses are design values. After mounting, measure the real ones and update
-# them (README "Calibrating the camera poses"). The front pose must match rover30_description. !!!
+# Mounting (rover 3.0), details and reasons in the URDF and README:
+#   front: the rover's existing D455 at the front edge of the deck, level (= rover30 camera_joint).
+#   left / right: on a ~0.20 m post where the lidar used to be, yaw +/-80 deg, 20 deg down.
 
 target_frame: base_footprint   # frame of the fused cloud and all outputs (ground at z = 0, = Nav2 robot_base_frame)
-parent_frame: base_link        # frame the poses below are given in
 
 cameras:
   front:   # "Center" camera - shared with the main rover stack
@@ -43,14 +31,10 @@ cameras:
     depth_topic: /camera/realsense_camera/depth/image_rect_raw
     info_topic: /camera/realsense_camera/depth/camera_info
     decimation: 2              # use every 2nd pixel in both directions (640x480 -> 320x240)
-    # rover30 URDF: bottom screw (0.42, 0, 0.18) + D455 screw->camera_link (0.01115, 0.0475, 0.0145)
-    pose: {x: 0.43115, y: 0.0475, z: 0.1945, roll: 0.0, pitch: 0.0, yaw: 0.0}
   left:
     serial_no: '253822300711'  # quoted string! verify with: rs-enumerate-devices -s
-    pose: {x: 0.245, y: 0.106, z: 0.395, roll: 0.0, pitch: 0.35, yaw: 1.3963}
   right:
     serial_no: '253822300777'
-    pose: {x: 0.338, y: -0.090, z: 0.395, roll: 0.0, pitch: 0.35, yaw: -1.3963}
 
 # realsense2_camera parameters applied to every camera this project drives (source: driver).
 realsense:

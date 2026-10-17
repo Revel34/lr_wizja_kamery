@@ -12,12 +12,12 @@ CONFIG = os.path.join(os.path.dirname(__file__), '..', 'config', 'cameras.yaml')
 
 @pytest.fixture(scope='module')
 def full_urdf():
-    return rover_geometry.expand_urdf(CONFIG, include_rover=True, nominal_camera_frames=True)
+    return rover_geometry.expand_urdf(include_rover=True, nominal_camera_frames=True)
 
 
 @pytest.fixture(scope='module')
 def cameras_only_urdf():
-    return rover_geometry.expand_urdf(CONFIG, include_rover=False, nominal_camera_frames=False)
+    return rover_geometry.expand_urdf(include_rover=False, nominal_camera_frames=False)
 
 
 def links(urdf):
@@ -55,15 +55,38 @@ def test_cameras_only_model(cameras_only_urdf):
     assert not any(n.endswith('optical_frame') for n in names)  # published by the realsense driver
 
 
-def test_every_camera_present_with_yaml_pose(full_urdf):
+def test_every_yaml_camera_is_placed_in_the_urdf(full_urdf, cameras_only_urdf):
     rig = camera_config.load(CONFIG)
-    tf = rover_geometry.frame_transforms(full_urdf, rig.parent_frame)
+    rover_geometry.check_cameras_in_urdf(rig, full_urdf, include_external=True)
+    rover_geometry.check_cameras_in_urdf(rig, cameras_only_urdf, include_external=False)
+    tf = rover_geometry.frame_transforms(full_urdf, 'base_link')
     for cam in rig.cameras:
-        m = tf[cam.link_frame]
-        assert m[:3, 3] == pytest.approx([cam.x, cam.y, cam.z], abs=1e-9)
-        expected = np.array(camera_config.rotation_matrix(cam.roll, cam.pitch, cam.yaw))
-        assert np.allclose(m[:3, :3], expected, atol=1e-9)
         assert cam.depth_optical_frame in tf
+
+
+def test_missing_camera_is_reported(full_urdf, tmp_path):
+    path = tmp_path / 'cams.yaml'
+    path.write_text('cameras:\n  rear:\n    serial_no: \'1\'\n')
+    with pytest.raises(RuntimeError, match='camera_rear_link'):
+        rover_geometry.check_cameras_in_urdf(camera_config.load(str(path)), full_urdf, True)
+
+
+# base_link -> camera_link poses (xyz, rpy) the rover is currently set up with. The front one is the
+# rover30 camera_joint (tripod screw 0.42, 0, 0.18) + the D455 screw -> camera_link offset; the side
+# ones are the post design. Update together with the CAMERA POSITIONS block when cameras move.
+EXPECTED_LINK_POSES = {
+    'camera_link': ((0.43115, 0.0475, 0.1945), (0.0, 0.0, 0.0)),
+    'camera_left_link': ((0.245, 0.106, 0.395), (0.0, 0.35, 1.3963)),
+    'camera_right_link': ((0.338, -0.090, 0.395), (0.0, 0.35, -1.3963)),
+}
+
+
+def test_camera_link_poses(full_urdf):
+    tf = rover_geometry.frame_transforms(full_urdf, 'base_link')
+    for frame, (xyz, rpy) in EXPECTED_LINK_POSES.items():
+        assert tf[frame][:3, 3] == pytest.approx(xyz, abs=1e-4), frame
+        expected = np.array(camera_config.rotation_matrix(*rpy))
+        assert np.allclose(tf[frame][:3, :3], expected, atol=1e-6), frame
 
 
 def test_cameras_look_front_left_right(full_urdf):
