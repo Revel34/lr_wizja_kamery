@@ -12,6 +12,7 @@ install(PROGRAMS scripts/fake_cameras.py scripts/coverage_map.py DESTINATION lib
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_camera_config test/test_camera_config.py)
+  ament_add_pytest_test(test_description test/test_description.py)
 endif()
 
 ament_package()

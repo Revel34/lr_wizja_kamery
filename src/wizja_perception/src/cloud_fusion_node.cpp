@@ -26,6 +26,31 @@ int floatFieldOffset(const sensor_msgs::msg::PointCloud2 & msg, const std::strin
   return -1;
 }
 
+// Range clip (in the sensor frame) -> transform -> self-filter -> append, shared by both input types.
+struct PointAccumulator
+{
+  const Eigen::Isometry3f & tf;
+  float r2_min;
+  float r2_max;
+  bool self_filter;
+  const Eigen::Vector3f & self_min;
+  const Eigen::Vector3f & self_max;
+  Cloud & out;
+
+  void operator()(float x, float y, float z) const
+  {
+    const float r2 = x * x + y * y + z * z;  // NaN fails both comparisons and is dropped
+    if (!(r2 >= r2_min && r2 <= r2_max)) {
+      return;
+    }
+    const Eigen::Vector3f p = tf * Eigen::Vector3f(x, y, z);
+    if (self_filter && (p.array() >= self_min.array()).all() && (p.array() <= self_max.array()).all()) {
+      return;
+    }
+    out.push_back(PointT(p.x(), p.y(), p.z()));
+  }
+};
+
 Eigen::Vector3f toVector3f(const std::vector<double> & v, const Eigen::Vector3f & fallback)
 {
   if (v.size() != 3) {
@@ -38,11 +63,12 @@ Eigen::Vector3f toVector3f(const std::vector<double> & v, const Eigen::Vector3f 
 CloudFusionNode::CloudFusionNode(const rclcpp::NodeOptions & options)
 : Node("cloud_fusion", options)
 {
-  target_frame_ = declare_parameter<std::string>("target_frame", "base_link");
+  target_frame_ = declare_parameter<std::string>("target_frame", "base_footprint");
   range_min_ = declare_parameter<double>("range_min", 0.3);
   range_max_ = declare_parameter<double>("range_max", 8.0);
   point_stride_ = std::max<int>(1, declare_parameter<int>("point_stride", 1));
   voxel_leaf_ = declare_parameter<double>("voxel_leaf", 0.05);
+  depth_scale_ = declare_parameter<double>("depth_scale", 0.001);  // 16UC1 depth units -> m (RealSense: mm)
   stale_timeout_ = declare_parameter<double>("stale_timeout", 0.5);
   cache_static_tf_ = declare_parameter<bool>("cache_static_tf", true);
   last_published_stamp_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
@@ -83,14 +109,44 @@ CloudFusionNode::CloudFusionNode(const rclcpp::NodeOptions & options)
   for (std::size_t i = 0; i < names.size(); ++i) {
     Camera & cam = cameras_[i];
     cam.name = names[i];
+    const std::string prefix = "cameras." + cam.name + ".";
+    const auto type = declare_parameter<std::string>(prefix + "type", "cloud");
+    if (type != "cloud" && type != "depth_image") {
+      throw std::invalid_argument(prefix + "type must be 'cloud' or 'depth_image', got '" + type + "'");
+    }
+    cam.depth_image = (type == "depth_image");
     cam.topic = declare_parameter<std::string>(
-      "cameras." + cam.name + ".topic", "/camera_" + cam.name + "/depth/color/points");
+      prefix + "topic", "/camera_" + cam.name + "/depth/color/points");
     cam.stamp = last_published_stamp_;
     cam.received = steady_clock_.now();
-    cam.sub = create_subscription<sensor_msgs::msg::PointCloud2>(
+
+    if (!cam.depth_image) {
+      cam.sub = create_subscription<sensor_msgs::msg::PointCloud2>(
+        cam.topic, sensor_qos,
+        [this, i](const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {cloudCallback(i, msg);});
+      RCLCPP_INFO(get_logger(), "Camera '%s' <- %s (PointCloud2)", cam.name.c_str(), cam.topic.c_str());
+      continue;
+    }
+
+    cam.info_topic = declare_parameter<std::string>(prefix + "info_topic", "");
+    cam.decimation = std::max<int>(1, declare_parameter<int>(prefix + "decimation", 1));
+    if (cam.info_topic.empty()) {
+      throw std::invalid_argument(prefix + "info_topic is required for depth_image cameras");
+    }
+    cam.image_sub = create_subscription<sensor_msgs::msg::Image>(
       cam.topic, sensor_qos,
-      [this, i](const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {cloudCallback(i, msg);});
-    RCLCPP_INFO(get_logger(), "Camera '%s' <- %s", cam.name.c_str(), cam.topic.c_str());
+      [this, i](const sensor_msgs::msg::Image::ConstSharedPtr msg) {depthCallback(i, msg);});
+    cam.info_sub = create_subscription<sensor_msgs::msg::CameraInfo>(
+      cam.info_topic, sensor_qos,
+      [this, i](const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        Camera & c = cameras_[i];
+        c.intrinsics = PinholeIntrinsics{msg->k[0], msg->k[4], msg->k[2], msg->k[5]};
+        c.has_intrinsics = c.intrinsics.valid();
+      });
+    RCLCPP_INFO(
+      get_logger(), "Camera '%s' <- %s + %s (depth image, decimation %d)", cam.name.c_str(),
+      cam.topic.c_str(), cam.info_topic.c_str(), cam.decimation);
   }
 
   pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(output_topic, rclcpp::QoS(1).reliable());
@@ -171,11 +227,12 @@ void CloudFusionNode::cloudCallback(
 
   const std::size_t width = msg->width;
   const std::size_t n_points = width * msg->height;
-  const float r2_min = static_cast<float>(range_min_ * range_min_);
-  const float r2_max = static_cast<float>(range_max_ * range_max_);
-
   auto cloud = std::make_shared<Cloud>();
   cloud->reserve(n_points / point_stride_ + 1);
+  const PointAccumulator add{
+    tf, static_cast<float>(range_min_ * range_min_), static_cast<float>(range_max_ * range_max_),
+    self_filter_enabled_, self_min_, self_max_, *cloud};
+
   const std::uint8_t * data = msg->data.data();
   for (std::size_t i = 0; i < n_points; i += point_stride_) {
     const std::uint8_t * point = data + (i / width) * msg->row_step + (i % width) * msg->point_step;
@@ -183,19 +240,60 @@ void CloudFusionNode::cloudCallback(
     std::memcpy(&x, point + off_x, sizeof(float));
     std::memcpy(&y, point + off_y, sizeof(float));
     std::memcpy(&z, point + off_z, sizeof(float));
-    const float r2 = x * x + y * y + z * z;  // NaN fails both comparisons and is dropped
-    if (!(r2 >= r2_min && r2 <= r2_max)) {
-      continue;
+    add(x, y, z);
+  }
+  storeCloud(index, cloud, msg->header.stamp);
+}
+
+void CloudFusionNode::depthCallback(
+  std::size_t index, const sensor_msgs::msg::Image::ConstSharedPtr & msg)
+{
+  PinholeIntrinsics k;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!cameras_[index].has_intrinsics) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000, "Camera '%s': waiting for CameraInfo on %s",
+        cameras_[index].name.c_str(), cameras_[index].info_topic.c_str());
+      return;
     }
-    const Eigen::Vector3f p = tf * Eigen::Vector3f(x, y, z);
-    if (self_filter_enabled_ &&
-      (p.array() >= self_min_.array()).all() && (p.array() <= self_max_.array()).all())
-    {
-      continue;
-    }
-    cloud->push_back(PointT(p.x(), p.y(), p.z()));
+    k = cameras_[index].intrinsics;
   }
 
+  DepthImageView image;
+  image.encoding = depthEncodingFromString(msg->encoding);
+  if (image.encoding == DepthEncoding::kUnsupported || msg->is_bigendian) {
+    RCLCPP_ERROR_THROTTLE(
+      get_logger(), *get_clock(), 5000, "Camera '%s': unsupported depth encoding '%s'%s",
+      cameras_[index].name.c_str(), msg->encoding.c_str(), msg->is_bigendian ? " (big endian)" : "");
+    return;
+  }
+
+  Eigen::Isometry3f tf;
+  if (!lookupTransform(msg->header.frame_id, tf)) {
+    return;
+  }
+
+  image.data = msg->data.data();
+  image.width = static_cast<int>(msg->width);
+  image.height = static_cast<int>(msg->height);
+  image.step = msg->step;
+  image.depth_scale = depth_scale_;
+  const int decimation = cameras_[index].decimation;
+
+  auto cloud = std::make_shared<Cloud>();
+  cloud->reserve((msg->width / decimation + 1) * (msg->height / decimation + 1));
+  projectDepth(
+    image, k, decimation,
+    PointAccumulator{
+      tf, static_cast<float>(range_min_ * range_min_), static_cast<float>(range_max_ * range_max_),
+      self_filter_enabled_, self_min_, self_max_, *cloud});
+  storeCloud(index, cloud, msg->header.stamp);
+}
+
+void CloudFusionNode::storeCloud(
+  std::size_t index, Cloud::Ptr cloud, const builtin_interfaces::msg::Time & stamp)
+{
   if (voxel_leaf_ > 0.0 && !cloud->empty()) {
     auto filtered = std::make_shared<Cloud>();
     pcl::VoxelGrid<PointT> voxel;
@@ -209,7 +307,7 @@ void CloudFusionNode::cloudCallback(
   std::lock_guard<std::mutex> lock(mutex_);
   Camera & cam = cameras_[index];
   cam.cloud = cloud;
-  cam.stamp = rclcpp::Time(msg->header.stamp, get_clock()->get_clock_type());
+  cam.stamp = rclcpp::Time(stamp, get_clock()->get_clock_type());
   cam.received = steady_clock_.now();
   ++cam.received_total;
 }

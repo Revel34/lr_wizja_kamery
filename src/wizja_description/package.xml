@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>wizja_description</name>
+  <version>0.1.0</version>
+  <description>
+    Rover 3.0 visual model (geometry and simplified meshes from Aut-Main rover30_description) with the
+    3x RealSense D455 camera cluster, camera poses read from wizja_bringup/config/cameras.yaml.
+  </description>
+  <maintainer email="erykziobro@gmail.com">revel34</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

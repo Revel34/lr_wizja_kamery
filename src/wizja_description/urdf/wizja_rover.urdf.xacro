@@ -1,0 +1,169 @@
+<?xml version="1.0"?>
+<!--
+  Rover 3.0 (rover30) visual model with the depth-camera cluster of lr_wizja_kamery.
+
+  Rover geometry, joint origins/limits and meshes are taken from Aut-Main rover30_description
+  (rover30_ASSEMBLY_NEW.urdf.xacro, simplified meshes). The lidar and the old front vision D455 are
+  left out: they are replaced by the camera cluster below.
+
+  Args:
+    cameras_config         wizja_bringup cameras.yaml (camera names + base_link -> camera_<name>_link poses)
+    include_rover          true:  full model, root base_footprint (standalone / laptop / simulator)
+                           false: only base_link + camera mount + cameras, for running next to the main
+                                  rover stack whose robot_state_publisher already publishes the rover
+    nominal_camera_frames  true: also add <prefix>_depth_frame / _depth_optical_frame. Only for
+                           the simulator - on hardware the realsense driver publishes them (publish_tf).
+
+  Cameras with `source: external` in cameras.yaml (the rover's front D455, owned by the main stack)
+  are only added when include_rover=true; with include_rover=false the main stack's URDF already
+  publishes their frames (camera_link, ...).
+-->
+<robot name="rover30_wizja" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:arg name="cameras_config" default="$(find wizja_bringup)/config/cameras.yaml"/>
+  <xacro:arg name="include_rover" default="true"/>
+  <xacro:arg name="nominal_camera_frames" default="false"/>
+
+  <xacro:property name="rig" value="${xacro.load_yaml('$(arg cameras_config)')}"/>
+  <xacro:property name="include_rover" value="${'$(arg include_rover)'.lower() in ('true', '1')}"/>
+  <xacro:property name="nominal_frames" value="${'$(arg nominal_camera_frames)'.lower() in ('true', '1')}"/>
+  <xacro:property name="mesh_dir" value="package://wizja_description/meshes"/>
+
+  <!-- base_footprint (ground contact plane) -> base_link, from rover30_BASE_PLATFORM.xacro -->
+  <xacro:property name="base_link_height" value="0.37956"/>
+  <!-- Top of the deck in base_link (measured from base_link.stl) -->
+  <xacro:property name="deck_top_z" value="0.18"/>
+
+  <!-- Camera post for the side cameras: where the lidar used to be (rover30 laser_joint xyz 0.33 0 0.185) -->
+  <xacro:property name="post_x" value="0.33"/>
+  <xacro:property name="post_y" value="0.0"/>
+  <xacro:property name="post_height" value="0.20"/>
+  <xacro:property name="post_radius" value="0.02"/>
+
+  <material name="purple"><color rgba="${114/255} 0 1 1"/></material>
+  <material name="steer_blue"><color rgba="${202/255} ${209/255} ${238/255} 1"/></material>
+  <material name="wheel_gray"><color rgba="${192/255} ${192/255} ${192/255} 1"/></material>
+  <material name="aluminum"><color rgba="0.5 0.5 0.5 1"/></material>
+  <material name="dark"><color rgba="0.15 0.15 0.15 1"/></material>
+
+  <!-- ===================================== Rover body ===================================== -->
+  <xacro:if value="${include_rover}">
+    <link name="base_footprint"/>
+    <joint name="base_footprint_joint" type="fixed">
+      <parent link="base_footprint"/>
+      <child link="base_link"/>
+      <origin xyz="0 0 ${base_link_height}" rpy="0 0 0"/>
+    </joint>
+  </xacro:if>
+
+  <link name="base_link">
+    <xacro:if value="${include_rover}">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry><mesh filename="${mesh_dir}/base_rockers.stl"/></geometry>
+        <material name="purple"/>
+      </visual>
+    </xacro:if>
+  </link>
+
+  <xacro:macro name="steer_wheel" params="prefix xyz wheel_xyz">
+    <link name="${prefix}_steer_link">
+      <visual>
+        <geometry><mesh filename="${mesh_dir}/${prefix}_steer_link.stl"/></geometry>
+        <material name="steer_blue"/>
+      </visual>
+    </link>
+    <joint name="${prefix}_steer_joint" type="revolute">
+      <parent link="base_link"/>
+      <child link="${prefix}_steer_link"/>
+      <origin xyz="${xyz}" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit effort="100" lower="${-pi/2}" upper="${pi/2}" velocity="2.0"/>
+    </joint>
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <geometry><mesh filename="${mesh_dir}/${prefix}_wheel_link.stl"/></geometry>
+        <material name="wheel_gray"/>
+      </visual>
+    </link>
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="${prefix}_steer_link"/>
+      <child link="${prefix}_wheel_link"/>
+      <origin xyz="${wheel_xyz}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit effort="100" velocity="10.0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:if value="${include_rover}">
+    <xacro:steer_wheel prefix="left_front" xyz="0.48131 0.37355 -0.053034" wheel_xyz="-0.00010481 -0.058502 -0.21094"/>
+    <xacro:steer_wheel prefix="right_front" xyz="0.48137 -0.37345 -0.052825" wheel_xyz="0 0.058502 -0.21094"/>
+    <xacro:steer_wheel prefix="left_rear" xyz="-0.36144 0.37355 -0.052615" wheel_xyz="-0.00010481 -0.058502 -0.21094"/>
+    <xacro:steer_wheel prefix="right_rear" xyz="-0.36137 -0.37345 -0.052825" wheel_xyz="0 0.058502 -0.21094"/>
+  </xacro:if>
+
+  <!-- ================================ Camera post + cluster ================================ -->
+  <link name="camera_post_link">
+    <visual>
+      <origin xyz="0 0 ${post_height / 2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${post_radius}" length="${post_height}"/></geometry>
+      <material name="dark"/>
+    </visual>
+    <visual>
+      <!-- mounting plate the side cameras sit on -->
+      <origin xyz="-0.02 0 ${post_height - 0.003}" rpy="0 0 0"/>
+      <geometry><box size="0.16 0.24 0.006"/></geometry>
+      <material name="dark"/>
+    </visual>
+  </link>
+  <joint name="camera_post_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_post_link"/>
+    <origin xyz="${post_x} ${post_y} ${deck_top_z}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- One D455. camera_<name>_link = realsense body frame (X out of the lens, origin at the left IR
+       imager = depth origin), exactly the frame realsense2_camera hangs its optical frames on. Visual
+       offsets from rover30 include/rs_d455.urdf.xacro. -->
+  <xacro:macro name="d455" params="name parent pose">
+    <joint name="${name}_mount_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_link"/>
+      <origin xyz="${pose['x']} ${pose['y']} ${pose['z']}" rpy="${pose['roll']} ${pose['pitch']} ${pose['yaw']}"/>
+    </joint>
+    <link name="${name}_link">
+      <visual>
+        <origin xyz="${4.55e-3 + 0.1e-3} -0.0475 0" rpy="${pi/2} 0 ${pi/2}"/>
+        <geometry><mesh filename="${mesh_dir}/rs_d455.stl" scale="0.001 0.001 0.001"/></geometry>
+        <material name="aluminum"/>
+      </visual>
+    </link>
+    <xacro:if value="${nominal_frames}">
+      <joint name="${name}_depth_joint" type="fixed">
+        <parent link="${name}_link"/>
+        <child link="${name}_depth_frame"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </joint>
+      <link name="${name}_depth_frame"/>
+      <joint name="${name}_depth_optical_joint" type="fixed">
+        <parent link="${name}_depth_frame"/>
+        <child link="${name}_depth_optical_frame"/>
+        <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+      </joint>
+      <link name="${name}_depth_optical_frame"/>
+    </xacro:if>
+  </xacro:macro>
+
+  <!-- Iterate over the cameras of cameras.yaml (xacro has no loops -> recursion over the name list) -->
+  <xacro:macro name="cameras" params="names">
+    <xacro:if value="${len(names) > 0}">
+      <xacro:property name="cam" value="${rig['cameras'][names[0]]}"/>
+      <xacro:if value="${include_rover or cam.get('source', 'driver') != 'external'}">
+        <xacro:d455 name="${cam.get('frame_prefix', '') or 'camera_' + names[0]}"
+                    parent="${rig.get('parent_frame', 'base_link')}"
+                    pose="${cam['pose']}"/>
+      </xacro:if>
+      <xacro:cameras names="${names[1:]}"/>
+    </xacro:if>
+  </xacro:macro>
+  <xacro:cameras names="${list(rig['cameras'].keys())}"/>
+</robot>

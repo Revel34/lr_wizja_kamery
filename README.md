@@ -1,13 +1,14 @@
 # lr_wizja_kamery: depth-camera obstacle detection for the rover
 
-This project replaces the lidar with 3 Intel RealSense D455 depth cameras (86° HFOV, one per side). It fuses their point clouds into a single cloud in `base_link` and detects obstacles relative to the locally estimated ground, so slopes and hills are not reported as obstacles. It is based on the rover 2.2 code (`kick-autonomy`, `rover_perception/height_filter_node.py`), extended to 3 cameras and with the fixed height slice replaced by ground-relative analysis.
+This project replaces the lidar with 3 Intel RealSense D455 depth cameras (86° HFOV, one per side). It fuses their point clouds into a single cloud in `base_footprint` (ground level, the same frame Nav2 uses on rover 3.0) and detects obstacles relative to the locally estimated ground, so slopes and hills are not reported as obstacles. It is based on the rover 2.2 code (`kick-autonomy`, `rover_perception/height_filter_node.py`), extended to 3 cameras and with the fixed height slice replaced by ground-relative analysis.
 
-ROS 2 Humble · Ubuntu 22.04 · C++17 / PCL · target computer: Geekom (x86_64).
+ROS 2 Humble · Ubuntu 22.04 · C++17 / PCL · target computer: Geekom (x86_64) · rover: Rover 3.0 (Aut-Main `rover30`).
 
 ```
- D455 front ─┐  /camera_front/depth/color/points
+ D455 front ─┐  depth image from the main stack's driver (shared camera)
  D455 left  ─┼─► cloud_fusion ──► /wizja/fused_points ──► obstacle_detector ─┬─► /obstacles/points    (PointCloud2)
- D455 right ─┘   (TF to base_link,     (base_link)          (ground plane +     ├─► /obstacles/grid      (OccupancyGrid)
+ D455 right ─┘   (TF to base_footprint, (base_footprint)   (ground plane +
+   /camera_left|right/depth/color/points (our drivers)     ├─► /obstacles/grid      (OccupancyGrid)
                   range clip, self-                          local ground grid,  ├─► /obstacles/clusters  (wizja_msgs/ObstacleArray)
                   filter, voxel)                             height above it)    ├─► /obstacles/markers   (MarkerArray, RViz)
                                                                                  └─► /wizja/ground_points (debug)
@@ -21,6 +22,7 @@ The two perception nodes are composable components in one `component_container_m
 |---|---|
 | `wizja_msgs` | `Obstacle.msg`, `ObstacleArray.msg` |
 | `wizja_perception` | `CloudFusionNode`, `ObstacleDetectorNode`, ground segmentation library, unit tests, `config/perception.yaml` |
+| `wizja_description` | Rover 3.0 model (geometry, joints and simplified meshes copied from Aut-Main `rover30_description`) plus the camera post and the 3 D455s, with poses read from `cameras.yaml` |
 | `wizja_bringup` | launch files, `config/cameras.yaml` (cameras, serials, mounting poses, driver settings), RViz config, the `fake_cameras.py` simulator and the `coverage_map.py` tool |
 
 ## Installation on the Geekom
@@ -48,16 +50,43 @@ source install/setup.bash
 
 **On the rover (3× D455):**
 
+The serial numbers are already set in `cameras.yaml`:
+
+| Camera | Serial | Looks | Driver |
+|---|---|---|---|
+| `front` (Center) | `254122303704` | forward, level | **the main stack's** (shared camera, see below) |
+| `left` | `253822300711` | left, yaw +80° | ours |
+| `right` | `253822300777` | right, yaw −80° | ours |
+
+They are the 12-digit serials from the labels (`253822300711000000N14281-201` etc.). Check them once with `rs-enumerate-devices -s`; if one doesn't match, the driver for that camera won't find it.
+
+**The front camera is shared.** It is the D455 the rover already had, and the main stack's driver (`rover30_depth_camera/launch/rs/rs.launch.py`, node `realsense_camera`) owns it: besides our obstacle detection it feeds `rover30_vision`, RTAB-Map visual odometry (`/odom/visual` → EKF), `/depth/points` and `depth_to_laserscan`. Only one process can open a RealSense, so this project starts **no driver** for it (`source: external` in `cameras.yaml`) and reads its depth image `/camera/realsense_camera/depth/image_rect_raw` + `camera_info` instead. The main stack's RealSense launch must therefore be running (e.g. `depth_camera_irl.launch.py use_rs:=true` / the `rover-depth-camera` service).
+
 ```bash
-rs-enumerate-devices -s              # serial numbers, one per camera
-ros2 launch wizja_bringup wizja.launch.py \
-    serial_front:=<serial> serial_left:=<serial> serial_right:=<serial>
-# or put the serials in src/wizja_bringup/config/cameras.yaml (as quoted strings) and run:
 ros2 launch wizja_bringup wizja.launch.py
 # add use_rviz:=true to open RViz (if the Geekom has a screen)
+# override a serial without editing the file: serial_front:=<serial>
 ```
 
-Launch arguments: `cameras_config`, `serial_<name>`, `publish_camera_tf` (set `false` if the rover's URDF already defines the camera links), `use_fastdds_udp_profile`, `use_rviz`. You can also start the parts separately with `cameras.launch.py` (drivers + TF) and `perception.launch.py` (fusion + detection; it also takes `perception_params`, `log_level` and `use_sim_time`).
+Launch arguments: `cameras_config`, `serial_<name>`, `rover_model`, `use_fastdds_udp_profile`, `use_rviz`. You can also start the parts separately with `cameras.launch.py` (drivers + robot model) and `perception.launch.py` (fusion + detection; it also takes `perception_params`, `log_level` and `use_sim_time`).
+
+**Rover model and TF (`rover_model`):**
+
+| Value | Publishes | Use it when |
+|---|---|---|
+| `cameras_only` (default in `wizja.launch.py`) | `base_link` → camera post + side cameras (`camera_left_link`, `camera_right_link`) | the main Aut-Main stack is running and its `robot_state_publisher` already publishes the rover (`base_footprint` → `base_link`, wheels) and the front camera (`camera_link`) |
+| `full` | the whole rover30 model + all 3 cameras (the front one under its main-stack names `camera_link` …), root `base_footprint` | nothing else publishes the rover (laptop, simulator) |
+| `none` | nothing | the rover's own URDF already contains these cameras |
+
+Our `robot_state_publisher` runs in namespace `wizja` (`/wizja/robot_description`), so it never clashes with the main stack's `/robot_description`. The realsense driver adds `camera_<name>_link` → optical frames itself.
+
+**View the model only (no cameras needed):**
+
+```bash
+ros2 launch wizja_bringup view_model.launch.py
+```
+
+RViz shows the rover with the camera post and the 3 cameras ("Rover + cameras" display). The "Main stack model" display (disabled by default) shows the main stack's `/robot_description` when it runs.
 
 **Without hardware (synthetic cameras):**
 
@@ -65,16 +94,18 @@ Launch arguments: `cameras_config`, `serial_<name>`, `publish_camera_tf` (set `f
 ros2 launch wizja_bringup sim_test.launch.py            # use_rviz:=false without a screen
 ```
 
-`fake_cameras.py` ray-casts each camera from `cameras.yaml` (D455 FOV, 320×240 after decimation, depth noise ∝ z²) against a test scene: two boxes, a pole, a rock on a hill, a 14° hill and an 8 cm bump. The detector should report exactly 4 obstacles; the hill and the bump must not be among them.
+`fake_cameras.py` ray-casts each camera, at its pose in the rover URDF (D455 FOV, 320×240 after decimation, depth noise ∝ z²), against a test scene: two boxes, a pole, a rock on a hill, a 14° hill and an 8 cm bump. The front camera is simulated like the main stack's driver (a 640×480 16UC1 depth image + CameraInfo on the `/camera/realsense_camera/...` topics), so the depth-image input is tested too; the side cameras publish point clouds like our drivers. The rover's own body (deck, rockers, wheels, post, mast) is part of the scene; about 10% of each side camera's pixels see it, which tests the self-filter. The detector should report exactly 4 obstacles; the hill, the bump and the rover itself must not be among them.
 
 ## Topics
 
 | Topic | Type | Description |
 |---|---|---|
-| `/camera_<name>/depth/color/points` | PointCloud2 | driver input (BEST_EFFORT) |
-| `/wizja/fused_points` | PointCloud2 | fused cloud in `base_link`, rover body removed, voxel 5 cm |
+| `/camera_<name>/depth/color/points` | PointCloud2 | input from our side-camera drivers (BEST_EFFORT) |
+| `/camera/realsense_camera/depth/image_rect_raw` + `.../depth/camera_info` | Image + CameraInfo | input from the shared front camera (main stack's driver) |
+| `/wizja/fused_points` | PointCloud2 | fused cloud in `base_footprint`, rover body removed, voxel 5 cm |
 | `/obstacles/points` | PointCloud2 | obstacle points (same topic as rover 2.2, so it works directly as an observation source for the Nav2 costmap) |
-| `/obstacles/grid` | OccupancyGrid | 16×16 m, 10 cm, centred on `base_link`: 100 obstacle, 0 ground seen, −1 unknown |
+| `/obstacles/grid` | OccupancyGrid | 16×16 m, 10 cm, centred on `base_footprint`: 100 obstacle, 0 ground seen, −1 unknown |
+| `/wizja/robot_description` | String | the model published by our `robot_state_publisher` |
 | `/obstacles/clusters` | wizja_msgs/ObstacleArray | obstacles: centroid, bbox, height above ground, distance, sorted from nearest |
 | `/obstacles/markers` | MarkerArray | boxes and labels for RViz |
 | `/wizja/ground_points` | PointCloud2 | ground points (debug, `publish_ground`) |
@@ -91,7 +122,7 @@ obstacles:
   marking: True
   clearing: True
   # Heights are already filtered relative to the local ground; keep Nav2's band wide so points
-  # on hills/slopes (z far from 0 in base_link) are not cut off again.
+  # on hills/slopes (z far from 0 in base_footprint) are not cut off again.
   min_obstacle_height: -1.0
   max_obstacle_height: 3.0
   obstacle_max_range: 6.0
@@ -100,7 +131,7 @@ obstacles:
 
 ## How detection works
 
-1. **Fusion:** each camera's cloud is transformed into `base_link`. The camera transforms are static, so they are looked up once and cached, and then the TF listener is released. Points are clipped to `range_min`–`range_max`, points inside the rover's box (`self_filter`) are removed, and the result goes through a voxel filter. A camera that sends nothing for longer than `stale_timeout` is left out of the fusion with a warning, and the rest keep working.
+1. **Fusion:** each camera's cloud is transformed into `base_footprint`. The camera transforms are static, so they are looked up once and cached, and then the TF listener is released. Points are clipped to `range_min`–`range_max`, points inside the rover's box (`self_filter`) are removed, and the result goes through a voxel filter. A camera that sends nothing for longer than `stale_timeout` is left out of the fusion with a warning, and the rest keep working.
 2. **Ground plane:** the cloud is divided into 25 cm cells, and each cell's ground estimate is its 10th z percentile. RANSAC fits a plane through these estimates with a tilt of at most 20°, which absorbs the rover's own pitch and roll. If the fit fails, a level plane at `expected_ground_z` is used instead.
 3. **Local ground:** cells close to the plane are trusted ground. The ground under every other cell (one that is raised, sparse or not visible) is taken from its neighbours, rising no faster than `max_slope_deg` (25°) allows. As a result, a hill gentler than 25° stays ground, while the top of a rock whose base is hidden is still pulled down to the surrounding terrain.
 4. **Obstacle:** a point between `obstacle.min_height` (0.15 m) and `obstacle.max_height` (2.0 m) above the local ground. Points above that are overhangs, such as branches, and are ignored.
@@ -109,7 +140,7 @@ obstacles:
 
 ## Configuration
 
-`src/wizja_bringup/config/cameras.yaml` is the only list of cameras. The driver nodes, the TFs, the fusion node topics and the simulator are all generated from it. To use 4 cameras later, add an entry here; no code changes are needed.
+`src/wizja_bringup/config/cameras.yaml` is the only list of cameras. The driver nodes, the robot model (URDF), the fusion node topics, the simulator and the coverage tool are all generated from it. To use 4 cameras later, add an entry here; no code changes are needed.
 
 `src/wizja_perception/config/perception.yaml` holds the algorithm parameters, each with a comment. The most important ones:
 
@@ -119,20 +150,66 @@ obstacles:
 | `ground.max_slope_deg` | 25° | steeper terrain counts as an obstacle |
 | `ground.trust_band` | 0.12 m | cells up to this far above the plane are trusted as ground |
 | `ground.max_tilt_deg` | 20° | maximum rover pitch/roll for the plane fit |
-| `self_filter.min/max` | ±0.7 × ±0.65 m | **PLACEHOLDER**: rover dimensions plus a margin |
+| `self_filter.min/max` | x −0.56…0.66, y ±0.50, z −0.1…1.25 m | the Rover 3.0 body, wheels, post and mast (from the rover30 meshes) plus ~5 cm |
 | `voxel_leaf` | 0.05 m | fused cloud density (CPU vs. detail) |
 | `range_max` | 8 m | the D455 has large depth error beyond ~6–8 m |
 
+### Rover 3.0 dimensions (from Aut-Main `rover30_description`)
+
+| | |
+|---|---|
+| `base_footprint` → `base_link` | z = 0.37956 m (base_link is above the ground; `base_footprint` is the wheel contact plane) |
+| Deck | x −0.41…0.40, y ±0.217 m, top 0.18 m above `base_link` |
+| Wheels | radius 0.13 m, width 0.14 m, axles at x +0.48 / −0.36 m, outer faces at y ±0.454 m |
+| Overall | x −0.51…0.61, y ±0.454 m, up to 1.17 m above the ground (rear mast) |
+
+### Camera mounting
+
+- **Front:** the rover's existing D455 at the front edge of the deck, **level**, exactly where the rover30 URDF has it (`camera_joint`: bottom screw at `base_link` (0.42, 0, 0.18)). It is 0.57 m above the ground and sees the ground from about 1.06 m ahead. Tilting it ~15° down would bring that to ~0.62 m, but vision and visual odometry use the same camera, so change that only together with them (and in rover30_description + `cameras.yaml`).
+- **Left / right:** on a plate on a **~0.20 m post where the lidar used to be** (`base_link` x 0.33, y 0, on top of the deck), yaw ±80°, 20° down. The post matters: lying flat on the deck, the deck, rocker arms and wheels would hide the side cameras' view of the ground out to about 3 m. On the post they are about 0.78 m above the ground and see it from about 0.7 m out.
+
+Check any layout with:
+
+```bash
+ros2 run wizja_bringup coverage_map.py --height 0.2        # ASCII map, includes occlusion by the rover body
+```
+
+| Camera | Position (base_link) | Yaw | Pitch |
+|---|---|---|---|
+| front | `camera_link` (0.431, 0.048, 0.195), from the rover30 URDF | 0° | 0° (level) |
+| left | body centre (0.29, +0.09) on the post | +80° | 20° down |
+| right | body centre (0.29, −0.09) on the post | −80° | 20° down |
+
+The sides are at ±80°, not ±90°, so their views overlap the front camera's on the front diagonals. The whole front half is covered; the rear (~125°) is not.
+
 ### Calibrating the camera poses (`cameras.yaml`)
 
-The poses in `cameras.yaml` are **placeholders**. `pose` is the transform `base_link → camera_<name>_link`, where `camera_<name>_link` is the RealSense body frame (X out of the lens, origin at the depth module). Angles are in radians in URDF order (roll, pitch, yaw), and `pitch > 0` tilts the camera **down**.
+The side-camera poses in `cameras.yaml` are **design values** for the layout above; after mounting, measure the real ones. The front pose must stay equal to the rover30 URDF (the main stack publishes that camera's TF; our copy is only used for the `full` model, the simulator and the coverage tool). `pose` is the transform `base_link → camera_<name>_link` (the rover30 URDF hangs all sensors on `base_link`). `camera_<name>_link` is the RealSense body frame: X out of the lens, origin at the left IR imager, which is 4.75 cm left of the body centre and about 4.6 mm behind the front glass. Angles are in radians in URDF order (roll, pitch, yaw), and `pitch > 0` tilts the camera **down**.
 
-1. Measure x/y/z with a tape measure from `base_link` (the centre of the rover at ground level) and measure the tilt with an inclinometer.
-2. Choose the layout before mounting: `ros2 run wizja_bringup coverage_map.py --height 0.2` draws an ASCII map of what the cameras see and lists the blind sectors. **Watch out:** side cameras mounted on the rover's sides (behind the front camera) leave blind slivers on the front diagonals even at a ±90° yaw. A compact cluster of all three cameras at the front with the sides at ±80° (the placeholder in `cameras.yaml`) covers the whole front.
-3. Check it with RViz on a flat area: `/wizja/ground_points` should be one flat surface with no "steps" where the cameras meet. Place a box in the overlap of two cameras; the two views must line up. If they don't, adjust the yaw or pitch in steps of about 0.01 rad.
-4. With the rover standing level, `/obstacles/points` should be empty on flat ground. If the edges flicker, correct the pitch of the camera concerned.
+1. Measure x/y/z with a tape measure from `base_link` (centre of the rover, 0.38 m above the ground) and the tilt with an inclinometer. Check the result with `view_model.launch.py`: the camera models must sit where the real cameras are.
+2. Check it with RViz on a flat area: `/wizja/ground_points` should be one flat surface with no "steps" where the cameras meet. Place a box in the overlap of two cameras; the two views must line up. If they don't, adjust the yaw or pitch in steps of about 0.01 rad.
+3. With the rover standing level, `/obstacles/points` should be empty on flat ground. If the edges flicker, correct the pitch of the camera concerned.
 
-**Tilt:** about 20° down (0.35 rad) is recommended. At a mounting height of 0.5 m and a 58° VFOV, the ground is visible from about 0.43 m in front of the lens, and the camera still sees about 9° above the horizon. A level camera would only see the ground from about 0.9 m.
+### Integration with the main rover stack (Aut-Main)
+
+- Run `wizja.launch.py` with the default `rover_model:=cameras_only` next to the main stack, **including its RealSense launch** (the front camera's depth comes from it). Our outputs are in `base_footprint`, the same frame as Nav2's `robot_base_frame`.
+- **Give the main stack's driver the front camera's serial.** `rs.launch.py` currently starts `realsense_camera` without `serial_no`, so it opens whichever RealSense it finds first, which can be one of the side cameras (then our driver for that side fails, and the "front" stream shows the side view). Add one line to its parameters in Aut-Main `src/rover30_depth_camera/launch/rs/rs.launch.py`:
+
+  ```python
+  realsense_node = Node(
+      package='realsense2_camera',
+      executable='realsense2_camera_node',
+      name='realsense_camera',
+      ...
+      parameters=[{
+          'serial_no': '_254122303704',   # front (Center) D455 - leaves the side cameras to lr_wizja_kamery
+          'align_depth.enable': True,
+          ...
+  ```
+
+  Our side-camera drivers already open their cameras by serial.
+- The rover30 URDF still contains the lidar (`laser_frame`); it should eventually be removed from `rover30_description` (not part of this repo).
+- To use the cameras in Nav2, replace the lidar observation source with `/obstacles/points` (example above).
 
 ## Performance and USB
 
@@ -150,12 +227,15 @@ colcon test && colcon test-result --verbose
 ```
 
 - `wizja_perception/test/test_ground_segmentation.cpp`: flat ground, a box, an object below the threshold, a 15° slope, a box on a slope, a step, a box with a hidden base, a tilted rover, a ditch, an overhang, and the occupancy grid.
-- `wizja_bringup/test/test_camera_config.py`: the `cameras.yaml` format, frame and topic names, and the rotation convention.
+- `wizja_bringup/test/test_camera_config.py`: the `cameras.yaml` format, serials, frame and topic names, and the rotation convention.
+- `wizja_bringup/test/test_description.py`: the URDF in `full` and `cameras_only` modes (the shared front camera only in `full`), camera poses in the URDF matching `cameras.yaml`, camera headings (front/left/right), and no camera inside the rover body.
+- `wizja_perception/test/test_depth_projection.cpp`: depth-image back-projection (pixel → xyz, decimation, invalid depth, 16UC1 vs 32FC1, padded rows).
 
 ## Known limitations
 
 - **No memory:** each frame is analysed independently. An obstacle that leaves the field of view disappears from `/obstacles/*`; the Nav2 costmap keeps it.
-- **Blind areas:** about 130° at the rear in the placeholder layout, and about 0.4 m directly in front of each lens (the D455's minimum depth).
+- **Blind areas:** about 125° at the rear, the strips right beside the rover body, the first ~1.06 m in front of the (level) front camera and ~0.7 m beside the side cameras.
 - **Ditch edges:** where the ground drops sharply (more than `obstacle.min_height`), the upper rim of the drop is reported as an obstacle. That is conservative, and in practice it marks the ditch. The ditch floor itself is not an obstacle.
+- **Front camera stream:** it comes from the main stack's driver settings (640×480 at 30 fps, no spatial/temporal filter), so it is noisier than the side cameras and is processed at 30 Hz (decimation 2 → ~77k points per frame). Raise `decimation` in `cameras.yaml` if CPU is short.
 - **Surfaces:** stereo depth fails on smooth, shiny or transparent surfaces and in dust. The D455's active projector helps indoors; outdoors the D455 works well in sunlight because it is a stereo camera.
 - The algorithm does not use an IMU. The rover's tilt is estimated from the ground plane, which works as long as part of the visible ground is flat.

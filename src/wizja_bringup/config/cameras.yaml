@@ -1,46 +1,58 @@
 # Depth cameras of the rover - the single source of truth used by every launch file
-# (driver nodes, static TFs, fusion node topics, simulator).
+# (driver nodes, URDF / robot model, fusion node topics, simulator, coverage tool).
 #
-# pose = transform base_link -> camera_<name>_link (REP-103, base_link: X forward, Y left, Z up).
-#   camera_<name>_link is the RealSense body frame: X out of the lens, Y left, Z up, origin
-#   at the depth module (left IR imager). Angles in radians, applied as roll, then pitch, then yaw
-#   about the fixed axes (same as URDF rpy). pitch > 0 tilts the camera DOWN.
+# pose = transform parent_frame (base_link) -> camera_<name>_link, as in the rover30 URDF where all
+#   sensors hang on base_link. base_link is 0.37956 m above base_footprint (ground contact plane).
+#   camera_<name>_link is the RealSense body frame: X out of the lens, Y left, Z up, origin at the
+#   depth module (LEFT IR imager, 4.75 cm left of the body centre, ~4.6 mm behind the front glass).
+#   Angles in radians, applied as roll, then pitch, then yaw about the fixed axes (URDF rpy).
+#   pitch > 0 tilts the camera DOWN.
 #
-# !!! PLACEHOLDER POSES - measure the real mounting positions and update them. !!!
-# Measurement tips (see README "Calibrating the camera poses"):
-#   - x/y/z: tape-measure from the base_link origin (centre of the rover at ground level)
-#     to the centre of the camera front glass, then add ~4 mm back along the lens axis.
-#   - yaw: front = 0, left side ~ +80 deg, right side ~ -80 deg (see coverage note below).
-#   - pitch: measure with a phone inclinometer on top of the camera.
+# Camera sources:
+#   source: driver    (default) this project starts a realsense2_camera node for it and uses its
+#                     point cloud /camera_<name>/depth/color/points.
+#   source: external  the camera is owned by another process - here the main rover stack (Aut-Main
+#                     rover30_depth_camera rs.launch.py, which also feeds rover30_vision, RTAB-Map
+#                     visual odometry and depth_to_laserscan; only one process can open a RealSense).
+#                     We only read its depth image (depth_topic + info_topic) and do not start a
+#                     driver; in 'cameras_only' mode its frames are not published by us either (the
+#                     main stack's URDF already has them). frame_prefix = the frame names it uses.
 #
-# Recommended tilt: ~20 deg (0.35 rad) down. With the D455 vertical FOV of ~58 deg and the camera
-# 0.5 m above ground, the lowest ray then hits the ground ~0.43 m from the lens, and the camera
-# still sees ~9 deg above the horizon (enough for tall obstacles further away). A level camera
-# would not see the ground closer than ~0.9 m.
+# Mounting (rover 3.0):
+#   front: the rover's existing D455 at the front edge of the deck, LEVEL (rover30 URDF camera_joint:
+#          bottom screw at base_link 0.42, 0, 0.18). Ground visible from ~1.06 m ahead; tilting it
+#          ~15 deg down would give ~0.62 m, but vision/odometry use it too - change only together.
+#   left / right: on a ~0.20 m post where the lidar used to be (base_link 0.33, 0, deck top 0.18),
+#          yaw +/-80 deg, 20 deg down. The post is needed: lying flat on the deck, the deck, rockers
+#          and wheels would hide the side cameras' view of the ground out to ~3 m. With the post they
+#          are ~0.78 m above the ground and see it from ~0.7 m.
+# +/-80 deg (not 90) so the front diagonals overlap with the front camera. Check any layout with:
+#     ros2 run wizja_bringup coverage_map.py --height 0.2
 #
-# Coverage: each D455 sees 86 deg horizontally. Because the cameras are offset from each other,
-# whether the front diagonals are covered depends on the mounting POSITIONS as well as the yaw.
-# E.g. side cameras at the rover's sides (x=0, y=+/-0.35) with yaw +/-90 deg (or even +/-80) leave
-# narrow blind slivers on the front diagonals that reach several metres out. The placeholder below
-# is a compact 3-camera cluster at the front (sides 8 cm apart, yaw +/-80 deg): no blind spot in
-# front, overlapping diagonals, only the rear (~130 deg) is blind.
-# Check any layout before mounting with:
-#     ros2 run wizja_bringup coverage_map.py --config <this file> --height 0.2
+# !!! The side-camera poses are design values. After mounting, measure the real ones and update
+# them (README "Calibrating the camera poses"). The front pose must match rover30_description. !!!
 
-target_frame: base_link
+target_frame: base_footprint   # frame of the fused cloud and all outputs (ground at z = 0, = Nav2 robot_base_frame)
+parent_frame: base_link        # frame the poses below are given in
 
 cameras:
-  front:
-    serial_no: ''          # quoted string! find it with: rs-enumerate-devices -s
-    pose: {x: 0.45, y: 0.00, z: 0.50, roll: 0.0, pitch: 0.35, yaw: 0.0}
+  front:   # "Center" camera - shared with the main rover stack
+    source: external
+    serial_no: '254122303704'  # used by the main stack's driver (see README), not by us
+    frame_prefix: camera       # main stack frames: camera_link, camera_depth_optical_frame
+    depth_topic: /camera/realsense_camera/depth/image_rect_raw
+    info_topic: /camera/realsense_camera/depth/camera_info
+    decimation: 2              # use every 2nd pixel in both directions (640x480 -> 320x240)
+    # rover30 URDF: bottom screw (0.42, 0, 0.18) + D455 screw->camera_link (0.01115, 0.0475, 0.0145)
+    pose: {x: 0.43115, y: 0.0475, z: 0.1945, roll: 0.0, pitch: 0.0, yaw: 0.0}
   left:
-    serial_no: ''
-    pose: {x: 0.40, y: 0.08, z: 0.50, roll: 0.0, pitch: 0.35, yaw: 1.3963}
+    serial_no: '253822300711'  # quoted string! verify with: rs-enumerate-devices -s
+    pose: {x: 0.245, y: 0.106, z: 0.395, roll: 0.0, pitch: 0.35, yaw: 1.3963}
   right:
-    serial_no: ''
-    pose: {x: 0.40, y: -0.08, z: 0.50, roll: 0.0, pitch: 0.35, yaw: -1.3963}
+    serial_no: '253822300777'
+    pose: {x: 0.338, y: -0.090, z: 0.395, roll: 0.0, pitch: 0.35, yaw: -1.3963}
 
-# realsense2_camera parameters applied to every camera.
+# realsense2_camera parameters applied to every camera this project drives (source: driver).
 realsense:
   # Depth only. Colour is not needed for obstacle detection and would double the USB load.
   enable_depth: true

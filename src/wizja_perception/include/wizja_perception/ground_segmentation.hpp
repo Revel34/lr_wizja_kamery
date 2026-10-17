@@ -1,6 +1,7 @@
 // Ground-relative obstacle segmentation for a fused depth-camera point cloud.
 //
-// The cloud is expected in a robot body frame (base_link: X forward, Y left, Z up).
+// The cloud is expected in a robot body frame at ground level (base_footprint: X forward, Y left,
+// Z up, z = 0 at the wheel contact plane when the rover stands level).
 // Algorithm:
 //   1. Bin the cloud into a 2D grid (cell_size). For every cell with enough points take a
 //      low percentile of z as the raw ground estimate of that cell.

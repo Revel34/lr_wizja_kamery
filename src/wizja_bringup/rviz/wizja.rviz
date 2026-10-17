@@ -19,11 +19,33 @@ Visualization Manager:
         Reliability Policy: Reliable
       Color Scheme: costmap
       Alpha: 0.5
+    - Class: rviz_default_plugins/RobotModel
+      Name: Rover + cameras
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /wizja/robot_description
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+    - Class: rviz_default_plugins/RobotModel
+      Name: Main stack model
+      Enabled: false
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 0.6
     - Class: rviz_default_plugins/TF
       Name: TF
-      Enabled: true
+      Enabled: false
       Show Names: false
-      Marker Scale: 0.4
+      Marker Scale: 0.3
     - Class: rviz_default_plugins/PointCloud2
       Name: Fused cloud
       Enabled: false
@@ -63,7 +85,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 40; 40; 48
-    Fixed Frame: base_link
+    Fixed Frame: base_footprint
     Frame Rate: 30
   Tools:
     - Class: rviz_default_plugins/MoveCamera

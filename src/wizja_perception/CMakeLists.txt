@@ -30,7 +30,7 @@ endif()
 find_package(PCL REQUIRED COMPONENTS common filters search kdtree segmentation)
 
 # --- ROS-free core (ground segmentation + occupancy) --------------------------------------
-add_library(wizja_ground SHARED src/ground_segmentation.cpp)
+add_library(wizja_ground SHARED src/ground_segmentation.cpp src/depth_projection.cpp)
 target_include_directories(wizja_ground PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
@@ -66,6 +66,8 @@ if(BUILD_TESTING)
   ament_add_gtest(test_ground_segmentation test/test_ground_segmentation.cpp)
   target_link_libraries(test_ground_segmentation wizja_ground wizja_perception_components)
   ament_target_dependencies(test_ground_segmentation wizja_msgs rclcpp)
+  ament_add_gtest(test_depth_projection test/test_depth_projection.cpp)
+  target_link_libraries(test_depth_projection wizja_ground)
 endif()
 
 ament_package()

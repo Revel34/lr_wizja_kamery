@@ -1,4 +1,4 @@
-"""Hardware-free test: synthetic D455 clouds (fake_cameras) -> fusion -> obstacle detection.
+"""Hardware-free test: rover model + synthetic D455 clouds (fake_cameras) -> fusion -> detection.
 
     ros2 launch wizja_bringup sim_test.launch.py
 """
@@ -14,14 +14,15 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 from wizja_bringup import camera_config
-from wizja_bringup.launch_helpers import static_camera_tf_nodes
+from wizja_bringup.launch_helpers import description_nodes
 
 
 def _setup(context):
     path = LaunchConfiguration('cameras_config').perform(context)
-    rig = camera_config.load(path)
     return [
-        *static_camera_tf_nodes(rig, with_optical_frames=True),
+        # Full rover model; the URDF also provides the camera optical frames that the real
+        # realsense driver would publish.
+        *description_nodes(path, 'full', nominal_camera_frames=True),
         Node(
             package='wizja_bringup',
             executable='fake_cameras.py',

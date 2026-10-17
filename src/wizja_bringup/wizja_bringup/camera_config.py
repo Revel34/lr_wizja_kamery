@@ -9,6 +9,9 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 
 
+SOURCES = ('driver', 'external')
+
+
 @dataclass
 class CameraConfig:
     name: str           # short name, e.g. 'front'
@@ -19,11 +22,20 @@ class CameraConfig:
     roll: float
     pitch: float
     yaw: float
+    source: str = 'driver'      # 'driver': we run realsense2_camera; 'external': another stack does
+    frame_prefix: str = ''      # frame names <prefix>_link, ... (default camera_<name>)
+    depth_topic: str = ''       # external only: depth image (16UC1 mm or 32FC1 m)
+    info_topic: str = ''        # external only: CameraInfo of that depth image
+    decimation: int = 1         # external only: use every n-th pixel in both directions
+
+    @property
+    def external(self) -> bool:
+        return self.source == 'external'
 
     @property
     def node_name(self) -> str:
-        """realsense2_camera node name and camera_name (frame prefix)."""
-        return f'camera_{self.name}'
+        """realsense2_camera node name and camera_name (frame prefix) for driver cameras."""
+        return self.frame_prefix or f'camera_{self.name}'
 
     @property
     def link_frame(self) -> str:
@@ -41,7 +53,8 @@ class CameraConfig:
 
 @dataclass
 class RigConfig:
-    target_frame: str
+    target_frame: str   # frame of the fused cloud / outputs (base_footprint: ground at z = 0)
+    parent_frame: str   # frame the camera poses are given in (base_link)
     cameras: List[CameraConfig]
     realsense: Dict
 
@@ -63,6 +76,11 @@ def load(path: str = '') -> RigConfig:
     for name, entry in cameras_data.items():
         entry = entry or {}
         pose = entry.get('pose') or {}
+        source = str(entry.get('source', 'driver'))
+        if source not in SOURCES:
+            raise ValueError(f'{path}: camera {name}: source must be one of {SOURCES}')
+        if source == 'external' and not (entry.get('depth_topic') and entry.get('info_topic')):
+            raise ValueError(f'{path}: external camera {name} needs depth_topic and info_topic')
         cameras.append(CameraConfig(
             name=str(name),
             # YAML turns an unquoted serial into an int; keep it a string either way.
@@ -73,10 +91,16 @@ def load(path: str = '') -> RigConfig:
             roll=float(pose.get('roll', 0.0)),
             pitch=float(pose.get('pitch', 0.0)),
             yaw=float(pose.get('yaw', 0.0)),
+            source=source,
+            frame_prefix=str(entry.get('frame_prefix', '') or ''),
+            depth_topic=str(entry.get('depth_topic', '') or ''),
+            info_topic=str(entry.get('info_topic', '') or ''),
+            decimation=max(1, int(entry.get('decimation', 1))),
         ))
 
     return RigConfig(
-        target_frame=str(data.get('target_frame', 'base_link')),
+        target_frame=str(data.get('target_frame', 'base_footprint')),
+        parent_frame=str(data.get('parent_frame', 'base_link')),
         cameras=cameras,
         realsense=dict(data.get('realsense') or {}),
     )
@@ -89,7 +113,15 @@ def fusion_parameters(rig: RigConfig) -> Dict:
         'camera_names': [c.name for c in rig.cameras],
     }
     for cam in rig.cameras:
-        params[f'cameras.{cam.name}.topic'] = cam.cloud_topic
+        prefix = f'cameras.{cam.name}.'
+        if cam.external:
+            params[prefix + 'type'] = 'depth_image'
+            params[prefix + 'topic'] = cam.depth_topic
+            params[prefix + 'info_topic'] = cam.info_topic
+            params[prefix + 'decimation'] = cam.decimation
+        else:
+            params[prefix + 'type'] = 'cloud'
+            params[prefix + 'topic'] = cam.cloud_topic
     return params
 
 
