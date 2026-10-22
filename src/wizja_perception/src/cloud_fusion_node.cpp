@@ -178,6 +178,18 @@ bool CloudFusionNode::lookupTransform(const std::string & frame, Eigen::Isometry
     }
   }
 
+  // Most common setup error: nothing publishes the rover body, so the target frame is missing
+  // entirely (e.g. rover_model:=cameras_only without the main rover stack running).
+  if (!tf_buffer_->_frameExists(target_frame_)) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 5000,
+      "TF frame '%s' does not exist: nothing publishes the rover body (%s -> base_link), so "
+      "camera frame '%s' cannot be placed. Start the main rover stack, or launch with "
+      "rover_model:=full when running without it (laptop/bench).",
+      target_frame_.c_str(), target_frame_.c_str(), frame.c_str());
+    return false;
+  }
+
   geometry_msgs::msg::TransformStamped tf_msg;
   try {
     tf_msg = tf_buffer_->lookupTransform(target_frame_, frame, tf2::TimePointZero);

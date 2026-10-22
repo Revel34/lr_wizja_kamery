@@ -80,6 +80,16 @@ Launch arguments: `cameras_config`, `serial_<name>`, `rover_model`, `use_fastdds
 
 Our `robot_state_publisher` runs in namespace `wizja` (`/wizja/robot_description`), so it never clashes with the main stack's `/robot_description`. The realsense driver adds `camera_<name>_link` → optical frames itself.
 
+**Bench test (laptop with real cameras, without the main stack):**
+
+```bash
+ros2 launch wizja_bringup wizja.launch.py rover_model:=full use_rviz:=true
+```
+
+Without the main stack nobody publishes `base_footprint` → `base_link`, so with the default `cameras_only` the camera frames are not connected to `base_footprint`: the fusion drops every cloud with `TF frame 'base_footprint' does not exist ...` and RViz (fixed frame `base_footprint`) stays empty. `rover_model:=full` publishes the whole rover model itself. Expected warnings on a bench:
+- `No data yet from camera 'front'`: the front camera's depth comes from the main stack's driver;
+- `Ground plane fit failed ... using the level fallback plane`: the cameras see little or no floor (e.g. lying on a desk). Obstacles are then measured from z = 0 of the model, so a desk surface shows up as an obstacle.
+
 **View the model only (no cameras needed):**
 
 ```bash
