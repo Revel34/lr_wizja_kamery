@@ -6,9 +6,9 @@ pipeline (TF, fusion, ground estimation, obstacle detection, clustering) can be 
 hardware. Camera poses come from the rover URDF (wizja_description, CAMERA POSITIONS block) and the
 rover's own body (deck, rockers, wheels, post, mast) is part of the scene, so the cameras see the
 rover exactly where the real ones would - which exercises the fusion node's self-filter.
-Cameras driven by this project publish a PointCloud2 like realsense2_camera; `source: external`
-cameras (the front D455 owned by the main rover stack) publish a 16UC1 depth image + CameraInfo,
-like the main stack's driver, which exercises the fusion node's depth-image input.
+Cameras driven by this project (all three by default) publish a PointCloud2 like realsense2_camera;
+`source: external` cameras (owned by another process) publish a 16UC1 depth image + CameraInfo like
+that process's driver would, which exercises the fusion node's depth-image input.
 
 drive:=false (default): the rover stands at the origin; the scene is rendered once.
 drive:=true: the rover follows /cmd_vel (e.g. teleop_twist_keyboard) with Rover 3.0's 4-wheel

@@ -14,9 +14,9 @@
 
   Args:
     include_rover          true:  full model, root base_footprint (standalone / laptop / simulator)
-                           false: only base_link + camera post + side cameras, for running next to the
+                           false: only base_link + camera post + cameras, for running next to the
                                   main rover stack whose robot_state_publisher already publishes the
-                                  rover and the front camera (camera_link ...)
+                                  rover itself (base_footprint -> base_link, wheels)
     nominal_camera_frames  true: also add <name>_depth_frame / _depth_optical_frame. Only for
                            the simulator - on hardware the realsense driver publishes them (publish_tf).
 -->
@@ -95,12 +95,10 @@
   <xacro:d455 name="camera_left"  parent="base_link" xyz="0.28910 0.08254 0.38520" rpy="0 0.35 1.3963"/>
   <xacro:d455 name="camera_right" parent="base_link" xyz="0.28854 -0.08304 0.38520" rpy="0 0.35 -1.3963"/>
 
-  <!-- Front ("Center"): the rover's existing D455, owned by the main stack, which publishes its TF
-       from Aut-Main rover30_description (camera_joint). Only added in the full model; if it is moved,
-       change it HERE AND in rover30_description so both stay equal. -->
-  <xacro:if value="${include_rover}">
-    <xacro:d455 name="camera" parent="base_link" xyz="0.42 0.0 0.18" rpy="0 0 0"/>
-  </xacro:if>
+  <!-- Front ("Center"): the rover's existing D455 at the front edge of the deck, level, at the
+       rover30 camera_joint pose. Our driver, like the sides. (Aut-Main rover30_description still has
+       its own camera_link at the same spot; nothing uses it while our driver owns the camera.) -->
+  <xacro:d455 name="camera_front" parent="base_link" xyz="0.42 0.0 0.18" rpy="0 0 0"/>
 
   <material name="purple"><color rgba="${114/255} 0 1 1"/></material>
   <material name="steer_blue"><color rgba="${202/255} ${209/255} ${238/255} 1"/></material>

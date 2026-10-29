@@ -30,14 +30,12 @@ def test_names_and_topics():
     assert left.cloud_topic == '/camera_left/depth/color/points'
 
 
-def test_front_is_the_shared_main_stack_camera():
+def test_front_runs_on_our_driver():
     front = {c.name: c for c in camera_config.load(CONFIG).cameras}['front']
-    assert front.external
-    # Frame names of the main stack's driver / rover30 URDF.
-    assert front.link_frame == 'camera_link'
-    assert front.depth_optical_frame == 'camera_depth_optical_frame'
-    assert front.depth_topic == '/camera/realsense_camera/depth/image_rect_raw'
-    assert front.info_topic == '/camera/realsense_camera/depth/camera_info'
+    assert front.source == 'driver' and not front.external
+    assert front.link_frame == 'camera_front_link'
+    assert front.depth_optical_frame == 'camera_front_depth_optical_frame'
+    assert front.cloud_topic == '/camera_front/depth/color/points'
 
 
 def test_external_camera_needs_topics(tmp_path):
@@ -52,9 +50,21 @@ def test_fusion_parameters_match_cameras():
     assert params['camera_names'] == ['front', 'left', 'right']
     assert params['cameras.left.type'] == 'cloud'
     assert params['cameras.left.topic'] == '/camera_left/depth/color/points'
+    assert params['cameras.front.type'] == 'cloud'
+    assert params['cameras.front.topic'] == '/camera_front/depth/color/points'
+
+
+def test_external_camera_reads_a_depth_image(tmp_path):
+    path = tmp_path / 'cams.yaml'
+    path.write_text(
+        'cameras:\n  front:\n    source: external\n    frame_prefix: camera\n'
+        '    depth_topic: /cam/depth\n    info_topic: /cam/info\n    decimation: 2\n')
+    front = camera_config.load(str(path)).cameras[0]
+    assert front.external and front.link_frame == 'camera_link'
+    params = camera_config.fusion_parameters(camera_config.load(str(path)))
     assert params['cameras.front.type'] == 'depth_image'
-    assert params['cameras.front.topic'] == '/camera/realsense_camera/depth/image_rect_raw'
-    assert params['cameras.front.info_topic'] == '/camera/realsense_camera/depth/camera_info'
+    assert params['cameras.front.topic'] == '/cam/depth'
+    assert params['cameras.front.info_topic'] == '/cam/info'
     assert params['cameras.front.decimation'] == 2
 
 

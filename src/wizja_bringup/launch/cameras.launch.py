@@ -74,7 +74,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'cameras_config', default_value=camera_config.default_config_path(),
-            description='Camera list, serial numbers and mounting poses'),
+            description='Camera list, serial numbers and driver settings (poses are in the URDF)'),
         DeclareLaunchArgument(
             'rover_model', default_value='cameras_only', choices=list(ROVER_MODEL_MODES),
             description='cameras_only: publish only the camera mount + cameras (the main rover stack '

@@ -9,10 +9,9 @@ cloud_fusion:
     output_topic: /wizja/fused_points
     camera_names: [front, left, right]
     cameras:
-      # type: cloud (PointCloud2) or depth_image (Image + CameraInfo, e.g. a camera shared with
-      # the main rover stack). Generated from cameras.yaml by the launch files.
-      front: {type: depth_image, topic: /camera/realsense_camera/depth/image_rect_raw,
-              info_topic: /camera/realsense_camera/depth/camera_info, decimation: 2}
+      # type: cloud (PointCloud2) or depth_image (Image + info_topic CameraInfo + decimation, for a
+      # camera owned by another process). Generated from cameras.yaml by the launch files.
+      front: {type: cloud, topic: /camera_front/depth/color/points}
       left:  {type: cloud, topic: /camera_left/depth/color/points}
       right: {type: cloud, topic: /camera_right/depth/color/points}
     depth_scale: 0.001      # depth_image cameras with 16UC1 images: units -> metres (RealSense: mm)
@@ -61,7 +60,7 @@ obstacle_detector:
       enabled: false
       min_depth: 0.3            # [m] below the ground plane
 
-    grid:                       # /obstacles/grid (nav_msgs/OccupancyGrid in base_link)
+    grid:                       # /obstacles/grid (nav_msgs/OccupancyGrid in the input frame, base_footprint)
       resolution: 0.1
       size: 16.0
       min_obstacle_points: 2

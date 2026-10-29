@@ -10,27 +10,22 @@
 # Camera sources:
 #   source: driver    (default) this project starts a realsense2_camera node for it and uses its
 #                     point cloud /camera_<name>/depth/color/points.
-#   source: external  the camera is owned by another process - here the main rover stack (Aut-Main
-#                     rover30_depth_camera rs.launch.py, which also feeds rover30_vision, RTAB-Map
-#                     visual odometry and depth_to_laserscan; only one process can open a RealSense).
-#                     We only read its depth image (depth_topic + info_topic) and do not start a
-#                     driver; in 'cameras_only' mode its frames are not published by us either (the
-#                     main stack's URDF already has them). frame_prefix = the frame names it uses.
+#   source: external  the camera is owned by another process (only one process can open a
+#                     RealSense). We only read its depth image (depth_topic + info_topic) and do not
+#                     start a driver; in 'cameras_only' mode its frames are not published by us either.
+#                     frame_prefix = the frame names that process uses. Not used by default: all three
+#                     cameras run on our drivers.
 #
 # Mounting (rover 3.0), details and reasons in the URDF and README:
 #   front: the rover's existing D455 at the front edge of the deck, level (= rover30 camera_joint).
+#          Driven by us, so the main rover stack's RealSense launch must not run (see README).
 #   left / right: on a ~0.20 m post where the lidar used to be, yaw +/-80 deg, 20 deg down.
 
 target_frame: base_footprint   # frame of the fused cloud and all outputs (ground at z = 0, = Nav2 robot_base_frame)
 
 cameras:
-  front:   # "Center" camera - shared with the main rover stack
-    source: external
-    serial_no: '254122303704'  # used by the main stack's driver (see README), not by us
-    frame_prefix: camera       # main stack frames: camera_link, camera_depth_optical_frame
-    depth_topic: /camera/realsense_camera/depth/image_rect_raw
-    info_topic: /camera/realsense_camera/depth/camera_info
-    decimation: 2              # use every 2nd pixel in both directions (640x480 -> 320x240)
+  front:   # "Center" camera, the rover's existing D455
+    serial_no: '254122303704'  # still to verify: rs-enumerate-devices -s
   left:
     serial_no: '253822300711'  # quoted string! verify with: rs-enumerate-devices -s
   right:
